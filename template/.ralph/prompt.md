@@ -39,6 +39,39 @@ Do not work on issues labeled with labels that map to:
 
 Do not promote or relabel issues as part of this solving loop. Ralph is a solver, not a triager.
 
+## Tracker Reconciliation
+
+Before applying dependency blockers to select new implementation work, detect whether the tracker is stale relative to the current branch.
+
+An open implementation issue is a stale implemented issue when all of these are true:
+
+- it is labeled with the tracker label that maps to `ready-for-agent`
+- it is still `OPEN`
+- the current branch already contains a non-merge commit that clearly implements that exact issue, preferably by referencing `#<number>` in the commit subject/body or by matching the issue title closely
+- the issue's acceptance criteria appear satisfied by the current code and tests
+- repo verification passes without requiring new source changes
+
+If one or more stale implemented issues exist, handle exactly one stale implemented issue in this iteration before starting new work.
+
+Selection priority for stale implemented issues:
+
+1. Issues that currently block other open implementation issues.
+2. Explicit dependency order from repo instructions.
+3. Lowest issue number as a deterministic tie-breaker.
+
+For the selected stale implemented issue:
+
+1. Fetch it with comments using `gh issue view <number> --comments`.
+2. Identify the existing implementation commit hash with `git log`.
+3. Run the repo-specific verification commands.
+4. Append a progress entry using the normal progress log format. In `Notes for future iterations`, state that this was tracker reconciliation for work already present on the branch.
+5. Commit only the progress-log change, if the progress log changed, with a message like `chore: reconcile Ralph progress for #<number>`.
+6. Push the workstream branch to the default remote before closing the issue. Use `git push -u origin <branch>` when the branch has no upstream, otherwise use `git push`.
+7. Close the issue using `.ralph/helpers/close-issue.sh` with a single final Markdown comment that includes what existing pushed commit implemented it, verification commands run, and any pushed progress-log commit hash.
+8. Stop this iteration normally. Do not start another feature.
+
+Do not create an artificial implementation commit for a stale implemented issue. If verification fails, acceptance criteria are unclear, or no existing implementation commit can be identified with high confidence, do not reconcile it; continue with normal eligibility rules or output `<promise>BLOCKED</promise>` if nothing is safely actionable.
+
 ## Work Selection
 
 Pick exactly one eligible issue.
@@ -95,14 +128,53 @@ Explain that repository verification commands must be documented before Ralph ca
 
 Do not close the issue or commit completion if verification fails. Fix failures caused by your changes. If a failure is unrelated or cannot be resolved safely within the single feature scope, stop with `<promise>BLOCKED</promise>` and explain.
 
-## Commit And Stop
+## Commit And Close
 
 After implementation and verification pass:
 
 1. Commit only changes relevant to the selected feature. Do not commit unrelated pre-existing worktree changes.
 2. Use a concise commit message that references the issue, for example `fix: resolve #<number> <short title>`.
-3. Follow repository instructions for progress logging, pushing, and issue closure when those instructions exist.
-4. Stop after completing one issue. Do not start another feature.
+3. Capture the implementation commit hash with `git rev-parse HEAD`.
+4. Append progress to `.ralph/progress.md`. The progress entry must include the real implementation commit hash from `git rev-parse HEAD`; never write placeholders such as `pending`, `(this commit)`, or `TBD`.
+5. If appending progress changed the worktree, commit only the progress-log change with a message like `chore: record Ralph progress for #<number>` and capture that progress commit hash. If the progress entry was already included in the implementation commit, do not create an empty progress commit. The progress-log commit is separate from the implementation commit and must not replace the implementation commit hash in the progress entry.
+6. Push the workstream branch to the default remote before posting the final issue comment. Use `git push -u origin <branch>` when the branch has no upstream, otherwise use `git push`.
+7. After push succeeds, derive the remote commit URL when possible with `gh browse --commit <hash> --no-browser`, or include the pushed commit hash if URL derivation is unavailable.
+8. Close the completed GitHub issue with `.ralph/helpers/close-issue.sh` and a single final Markdown comment that includes what was implemented, verification commands run, the pushed implementation commit URL or hash, and the pushed progress commit URL or hash when a separate progress commit was created.
+9. Stop after completing one issue. Do not start another feature.
+
+Use a heredoc for the final close comment:
+
+```bash
+.ralph/helpers/close-issue.sh <number> <<'EOF'
+Implemented: <short summary>
+
+Verification run:
+- <command>
+- <command>
+
+Implementation commit: <pushed commit URL or hash>
+Progress commit: <pushed commit URL or hash, or none>
+EOF
+```
+
+Never use `gh issue close --comment`, `gh issue comment --body`, or quoted strings containing literal `\n` for final close comments. The helper posts the comment from a body file and then closes the issue so GitHub renders real Markdown line breaks.
+
+Before calling the helper, read the final close comment once and make sure it is accurate. Do not post a correction comment after closing. If the final close comment is wrong before closing, fix the comment body and call the helper once. Never close an issue before the relevant commit is pushed successfully.
+
+## Progress Log Format
+
+Append only. Never replace the progress file.
+
+The `Commit` field must contain a valid implementation commit hash that exists in `git log`. It may include both the short and full hash, but it must not contain placeholders. If there is a separate progress-log commit, mention it in `Notes for future iterations`; do not put the progress-log commit in the `Commit` field unless this iteration was tracker reconciliation only.
+
+```text
+## <date> - Issue #<number>: <title>
+- Implemented: <short summary>
+- Verification: <commands and result>
+- Commit: <valid implementation commit hash>
+- Notes for future iterations: <reusable notes or none>
+---
+```
 
 ## Stop Condition
 
