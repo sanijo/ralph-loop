@@ -26,6 +26,8 @@ CONFIG_FILE="$SCRIPT_DIR/config"
 ENV_FILE="${RALPH_ENV_FILE:-$SCRIPT_DIR/.env}"
 PROMPT_FILE="$SCRIPT_DIR/prompt.md"
 LOG_DIR="$SCRIPT_DIR/logs"
+NOTIFY_SCRIPT="$SCRIPT_DIR/helpers/notify.sh"
+PROGRESS_FILE="$SCRIPT_DIR/progress.md"
 
 if [[ -f "$CONFIG_FILE" ]]; then
   set -a
@@ -113,6 +115,28 @@ fi
 
 rm -rf "$LOG_DIR"
 mkdir -p "$LOG_DIR"
+
+notify_ralph() {
+  local notify_status="$1"
+  local summary="$2"
+  local exit_code="$3"
+  local provider_status="${4:-unknown}"
+  local iteration="${5:-unknown}"
+
+  if [[ ! -f "$NOTIFY_SCRIPT" ]]; then
+    return 0
+  fi
+
+  RALPH_REPO_ROOT="$REPO_ROOT" \
+    RALPH_PROGRESS_FILE="$PROGRESS_FILE" \
+    RALPH_PROVIDER_NAME="$provider" \
+    RALPH_MODEL_NAME="${model:-provider default}" \
+    RALPH_MAX_ITERATIONS="$max_iterations" \
+    RALPH_ITERATION="$iteration" \
+    RALPH_EXIT_CODE="$exit_code" \
+    RALPH_PROVIDER_STATUS="$provider_status" \
+    bash "$NOTIFY_SCRIPT" "$notify_status" "$summary" || true
+}
 
 run_opencode() {
   local prompt="$1"
@@ -239,8 +263,29 @@ for ((iteration = 1; iteration <= max_iterations; iteration++)); do
 
   if [[ "$status" -ne 0 ]]; then
     printf 'Ralph provider failed in iteration %s with status %s. See %s\n' "$iteration" "$status" "$log_file" >&2
+    notify_ralph 'ERROR' "Provider failed in iteration $iteration. See $log_file." "$status" "$status" "$iteration"
     exit "$status"
+  fi
+
+  output="$(<"$log_file")"
+
+  if [[ "$output" == *'<promise>COMPLETE</promise>'* ]]; then
+    printf 'Ralph completed all available implementation issues after %s iteration(s).\n' "$iteration"
+    notify_ralph 'COMPLETE' 'All available implementation issues are complete.' 0 "$status" "$iteration"
+    exit 0
+  fi
+
+  if [[ "$output" == *'<promise>BLOCKED</promise>'* ]]; then
+    printf 'Ralph is blocked: no eligible ready-for-agent issue is available.\n'
+    notify_ralph 'BLOCKED' 'No eligible ready-for-agent issue is available.' 2 "$status" "$iteration"
+    exit 2
+  fi
+
+  if [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == '1' ]]; then
+    notify_ralph 'ITERATION_COMPLETE' "Iteration $iteration completed successfully." 0 "$status" "$iteration"
   fi
 done
 
 printf 'Ralph finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
+notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations) without a completion signal." 1 'unknown' "$max_iterations"
+exit 1
