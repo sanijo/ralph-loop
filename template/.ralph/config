@@ -7,7 +7,7 @@ RALPH_MAX_ITERATIONS=1
 
 # Equivalent CLI flags:
 # .ralph/ralph.sh --model openai/gpt-5.5 --variant low
-# Set RALPH_MODEL= or RALPH_VARIANT= in .ralph/.env to use provider defaults locally.
+# Uncomment these defaults or set them in .ralph/.env to pin model selection.
 
 # Optional provider overrides. Keep local-only changes in .ralph/.env.
 # RALPH_OPENCODE_BIN=opencode

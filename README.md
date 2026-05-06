@@ -105,7 +105,7 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-The installed defaults set `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`. Command-line `--model` and `--variant` override those values for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
+The installed config includes commented examples for `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`. When model or variant are unset, Ralph omits those provider flags and lets the provider choose its defaults. Command-line `--model` and `--variant` override config for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
 
 Auto-approval is enabled by default for unattended runs. OpenCode receives `--dangerously-skip-permissions`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal approval prompts or sandbox behavior.
 
