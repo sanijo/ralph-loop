@@ -10,6 +10,7 @@ Run Ralph issue-solving iterations in this target repository.
 Options:
   --provider PROVIDER       Provider adapter to use: opencode, claude, codex. Default: opencode.
   --model MODEL             Optional provider model override.
+  --variant VARIANT         Optional provider model variant. OpenCode only.
   --max-iterations COUNT    Maximum iterations to run. Default: 1.
   --dry-run                 Tell the agent this run must not push or close issues.
   --no-auto-approve         Disable provider auto-approval flags.
@@ -45,6 +46,7 @@ fi
 
 provider="${RALPH_PROVIDER:-opencode}"
 model="${RALPH_MODEL:-}"
+variant="${RALPH_VARIANT:-}"
 max_iterations="${RALPH_MAX_ITERATIONS:-1}"
 dry_run=0
 auto_approve=1
@@ -67,6 +69,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model=*)
       model="${1#*=}"
+      shift
+      ;;
+    --variant)
+      [[ $# -ge 2 ]] || { printf 'Error: --variant requires a value\n' >&2; exit 2; }
+      variant="$2"
+      shift 2
+      ;;
+    --variant=*)
+      variant="${1#*=}"
       shift
       ;;
     --max-iterations)
@@ -131,6 +142,7 @@ notify_ralph() {
     RALPH_PROGRESS_FILE="$PROGRESS_FILE" \
     RALPH_PROVIDER_NAME="$provider" \
     RALPH_MODEL_NAME="${model:-provider default}" \
+    RALPH_VARIANT_NAME="${variant:-provider default}" \
     RALPH_MAX_ITERATIONS="$max_iterations" \
     RALPH_ITERATION="$iteration" \
     RALPH_EXIT_CODE="$exit_code" \
@@ -146,6 +158,10 @@ run_opencode() {
 
   if [[ -n "$model" ]]; then
     args+=(--model "$model")
+  fi
+
+  if [[ -n "$variant" ]]; then
+    args+=(--variant "$variant")
   fi
 
   if [[ "$auto_approve" -eq 1 ]]; then
@@ -232,6 +248,9 @@ esac
 printf 'Starting Ralph: provider=%s max_iterations=%s dry_run=%s\n' "$provider" "$max_iterations" "$dry_run"
 if [[ -n "$model" ]]; then
   printf 'Model override: %s\n' "$model"
+fi
+if [[ -n "$variant" ]]; then
+  printf 'Variant override: %s\n' "$variant"
 fi
 
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
