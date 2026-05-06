@@ -36,3 +36,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: 9d57cb4222a838ac3fb8a9a445c8ee9ea19b7cf1
 - Notes for future iterations: The source-runner helper files under `scripts/ralph/` were pre-existing untracked work and were intentionally not committed for issue #6; issue #7 can now build on the prompt's close/push flow.
 ---
+
+## 2026-05-06 - Issue #7: Support PRD and standalone Ralph workstream branches
+- Implemented: Documented Ralph workstream branch selection in the installable prompt and README, including PRD-backed `ralph/<prd-slug>`, standalone `ralph/issues`, main/master switching, and non-main branch continuation.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: b4d5b7ae43ce16775e565fe48c1d7d0665b0f0d6
+- Notes for future iterations: A pre-existing unstaged dependency-gating edit remains in `template/.ralph/prompt.md` and was intentionally not included in the #7 commit.
+---
