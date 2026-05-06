@@ -83,9 +83,8 @@ install_file() {
     fi
 
     if [ "$force" -ne 1 ]; then
-      echo "Refusing to overwrite conflicting managed file: $rel" >&2
-      echo "Rerun with --force to replace it." >&2
-      exit 1
+      say "skip conflicting $rel (use --force to overwrite)"
+      return 0
     fi
 
     say "overwrite $rel"

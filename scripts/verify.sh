@@ -80,4 +80,21 @@ if [[ -n "$(git -C "$target" status --porcelain)" ]]; then
   exit 1
 fi
 
+conflict_target="$tmp_dir/conflict-target"
+mkdir -p "$conflict_target"
+git -C "$conflict_target" init --quiet
+printf 'custom agent instructions\n' >"$conflict_target/AGENTS.md"
+
+bash "$REPO_ROOT/scripts/install.sh" "$conflict_target" >/dev/null
+
+if [[ "$(<"$conflict_target/AGENTS.md")" != 'custom agent instructions' ]]; then
+  printf 'Installer overwrote a conflicting AGENTS.md without --force\n' >&2
+  exit 1
+fi
+
+if [[ ! -f "$conflict_target/CLAUDE.md" ]]; then
+  printf 'Installer did not continue after a conflicting AGENTS.md\n' >&2
+  exit 1
+fi
+
 printf 'Ralph Loop verification passed.\n'
