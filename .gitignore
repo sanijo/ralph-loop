@@ -1,0 +1,24 @@
+# Local editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling caches and logs
+.cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.log
+tmp/
+temp/
+
+# Ralph run-local state in this source checkout
+scripts/
+scripts/ralph/.env

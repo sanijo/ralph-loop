@@ -1,0 +1,73 @@
+# Ralph Progress Log
+
+Append-only notes from autonomous Ralph iterations.
+
+## 2026-05-06 - Issue #2: Establish the reusable Ralph Loop repository foundation
+- Implemented: Added project-neutral README, MIT license, source `.gitignore`, template payload placeholder, and documented interim verification commands.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 94252116e4c680b79c796a1a107c174c2d93c567
+- Notes for future iterations: Dedicated verification tooling does not exist yet; use `python3 -m unittest` and `git diff --check` until issue #10 replaces this interim check.
+---
+
+## 2026-05-06 - Issue #3: Install a minimal Ralph template into a target git repository
+- Implemented: Added a minimal installer with target git worktree validation, dry-run and force modes, idempotent template copying, managed `.gitignore` setup, and initial target `.ralph/` plus agent docs placeholders.
+- Verification: `sh -n scripts/install.sh` OK; `python3 -m unittest` OK; `git diff --check` OK; installer dry-run/install/idempotence smoke test OK.
+- Commit: f9777d20691f5406760f520939b3261b7031d646
+- Notes for future iterations: Issue #3 intentionally installs placeholder prompt/config/helper locations; later runner, provider, and prompt slices should replace or extend those managed template files.
+---
+
+## 2026-05-06 - Issue #4: Run Ralph through the unified OpenCode provider path
+- Implemented: Added the installed `.ralph/ralph.sh` runner with OpenCode as the default provider, committed config plus ignored env loading, optional model override, default auto-approval, dry-run prompt intent, and per-run log cleanup/output.
+- Verification: `bash -n template/.ralph/ralph.sh` OK; `python3 -m unittest` OK; `git diff --check` OK; installed runner help smoke test OK.
+- Commit: f7e66c82d617fb419f05a2f4e467ecdd3a56df88
+- Notes for future iterations: Provider support is intentionally limited to OpenCode until issue #8 adds Claude and Codex adapters; close helper and notification files remain untracked prior work and were not part of issue #4.
+---
+
+## 2026-05-06 - Issue #5: Implement the GitHub Issues solving contract
+- Implemented: Replaced the installable Ralph prompt placeholder with a GitHub Issues solving contract covering instruction discovery, PRD and implementation issue discovery, label gating, blockers, one-feature scope, dirty-worktree safeguards, documented verification requirements, and exact complete/blocked signals.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 4f009cb77801465af059d20b48d7da4de376de91
+- Notes for future iterations: Issue #6 should extend this prompt with the detailed progress logging, push, close helper, and stale reconciliation workflow rather than duplicating the solving-selection contract.
+---
+
+## 2026-05-06 - Issue #6: Commit progress and close completed GitHub issues safely
+- Implemented: Added the installable close helper and extended the Ralph prompt with real commit-hash progress logging, push-before-close requirements, single Markdown close comments, and stale implemented issue reconciliation.
+- Verification: `bash -n template/.ralph/helpers/close-issue.sh` OK; `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 9d57cb4222a838ac3fb8a9a445c8ee9ea19b7cf1
+- Notes for future iterations: The source-runner helper files under `scripts/ralph/` were pre-existing untracked work and were intentionally not committed for issue #6; issue #7 can now build on the prompt's close/push flow.
+---
+
+## 2026-05-06 - Issue #7: Support PRD and standalone Ralph workstream branches
+- Implemented: Documented Ralph workstream branch selection in the installable prompt and README, including PRD-backed `ralph/<prd-slug>`, standalone `ralph/issues`, main/master switching, and non-main branch continuation.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: b4d5b7ae43ce16775e565fe48c1d7d0665b0f0d6
+- Notes for future iterations: A pre-existing unstaged dependency-gating edit remains in `template/.ralph/prompt.md` and was intentionally not included in the #7 commit.
+---
+
+## 2026-05-06 - Issue #8: Add Claude and Codex provider options
+- Implemented: Added installable Claude and Codex provider adapters alongside OpenCode, provider binary/argument overrides, Claude and OpenCode instruction bridges, and template docs for best-effort provider support.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash -n template/.ralph/ralph.sh` OK; `sh -n scripts/install.sh` OK; staged runner `bash -n` OK; staged `git diff --check` OK.
+- Commit: f5930235c3a463a904a2def0d383c91af38fc142
+- Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh` and dependency-gating edits in `template/.ralph/prompt.md` remain uncommitted; they were intentionally excluded from the #8 implementation commit.
+---
+
+## 2026-05-06 - Issue #9: Add optional Telegram notifications for Ralph runs
+- Implemented: Added installable Telegram notification configuration, non-fatal notification helper, chat ID discovery helper with webhook/getUpdates caveats, and runner hooks for iteration, completion, blocked, error, and max-iteration states.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash -n template/.ralph/ralph.sh` OK; `bash -n template/.ralph/helpers/notify.sh` OK; `bash -n template/.ralph/helpers/telegram-chat-id.sh` OK; `RALPH_NOTIFY= bash template/.ralph/helpers/notify.sh ITERATION_COMPLETE test` OK.
+- Commit: d5ca2b3beb9788993ed87ef118c124e8d30f02b3
+- Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh`, dependency-gating edits in `template/.ralph/prompt.md`, and untracked source-runner files under `scripts/ralph/` remain uncommitted; they were intentionally excluded from the #9 implementation commit.
+---
+
+## 2026-05-06 - Issue #10: Verify the reusable installer and shell tooling in CI
+- Implemented: Added `scripts/verify.sh` to syntax-check shell tooling, install the template into a temporary git repository, assert expected installed files and Ralph ignore rules, and prove repeated installs are idempotent; added GitHub Actions verification on push and pull request.
+- Verification: `bash scripts/verify.sh` OK; `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: fc5c99a5851919ad18d2876cf20309e994b0757d
+- Notes for future iterations: `scripts/verify.sh` is the lightweight repository verification command and is also run by `.github/workflows/verify.yml`.
+---
+
+## 2026-05-06 - Issue #11: Document adoption and operating workflow end-to-end
+- Implemented: Expanded the source README with end-to-end Ralph adoption docs covering installation, dry-run and force behavior, target repository effects, provider selection, model overrides, auto-approval, GitHub Issues expectations, branch and progress workflow, issue closing, Telegram notifications, local verification, and CI.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash scripts/verify.sh` OK.
+- Commit: ff6d8f53ada5f4e52eea90ce5c2bac8e27c42b75
+- Notes for future iterations: This completes the final open implementation issue in the PRD-backed workstream; only the parent PRD issue remains open for human/project closure.
+---
