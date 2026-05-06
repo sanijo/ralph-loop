@@ -90,6 +90,16 @@ gh issue view <number> --comments
 
 Implement only the selected issue's acceptance criteria plus the smallest supporting changes needed.
 
+## Branch Policy
+
+Use one dedicated Ralph workstream branch for the selected workstream.
+
+1. If the selected work belongs to a PRD-backed issue set, use a branch named `ralph/<prd-slug>`, where `<prd-slug>` is a short, readable slug derived from the PRD title.
+2. If the selected work is a standalone ready issue without a PRD, use `ralph/issues`.
+3. Before coding, inspect the current branch with `git branch --show-current`.
+4. If the current branch is `main` or `master`, create or switch to the appropriate workstream branch before making source changes.
+5. If already on a non-main branch, continue on the current branch unless repo instructions explicitly require a different branch.
+
 If no open implementation issues remain, output exactly:
 
 ```text
