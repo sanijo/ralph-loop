@@ -69,6 +69,28 @@ for ignored in \
   fi
 done
 
+fake_bin="$tmp_dir/bin"
+fake_opencode_args="$tmp_dir/opencode-args.txt"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/opencode" <<'FAKE_OPENCODE'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$RALPH_FAKE_OPENCODE_ARGS"
+printf '<promise>COMPLETE</promise>\n'
+FAKE_OPENCODE
+chmod +x "$fake_bin/opencode"
+
+RALPH_FAKE_OPENCODE_ARGS="$fake_opencode_args" PATH="$fake_bin:$PATH" bash "$target/.ralph/ralph.sh" >/dev/null
+
+if ! grep -Fxq -- '--model' "$fake_opencode_args" || ! grep -Fxq -- 'openai/gpt-5.5' "$fake_opencode_args"; then
+  printf 'Installed runner did not pass configured OpenCode model\n' >&2
+  exit 1
+fi
+
+if ! grep -Fxq -- '--variant' "$fake_opencode_args" || ! grep -Fxq -- 'low' "$fake_opencode_args"; then
+  printf 'Installed runner did not pass configured OpenCode variant\n' >&2
+  exit 1
+fi
+
 git -C "$target" add .
 git -C "$target" commit --quiet -m 'initial install'
 

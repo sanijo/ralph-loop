@@ -8,7 +8,7 @@ Run Ralph from an installed target repository with:
 .ralph/ralph.sh
 ```
 
-The installed runner selects OpenCode by default, loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. Model selection is optional; Ralph only passes a provider model when `--model` or `RALPH_MODEL` is set.
+The installed runner selects OpenCode by default, loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. The committed defaults use `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`; command-line `--model` and `--variant` override those values for one run.
 
 Provider binaries and extra arguments can be overridden without editing the runner:
 
@@ -29,10 +29,12 @@ Useful options:
 
 ```bash
 .ralph/ralph.sh --dry-run
-.ralph/ralph.sh --model openai/gpt-5.5 --max-iterations 3
+.ralph/ralph.sh --model openai/gpt-5.5 --variant low --max-iterations 3
 .ralph/ralph.sh --provider opencode --no-auto-approve
 .ralph/ralph.sh --provider claude
 .ralph/ralph.sh --provider codex
 ```
 
 Dry-run mode is included in the generated agent prompt so the agent knows not to push commits, close issues, or mutate the issue tracker. Each run clears old ignored logs under `.ralph/logs/` and writes new provider output logs there for diagnosis.
+
+Variant support maps to OpenCode's provider-specific `--variant` flag. Claude and Codex adapters ignore `RALPH_VARIANT`.

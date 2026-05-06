@@ -77,7 +77,7 @@ Useful options:
 ```bash
 .ralph/ralph.sh --dry-run
 .ralph/ralph.sh --max-iterations 3
-.ralph/ralph.sh --provider opencode --model openai/gpt-5.5
+.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant low
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
 ```
@@ -105,7 +105,7 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-Model selection is optional. Ralph only passes a provider model when `--model` or `RALPH_MODEL` is set.
+The installed defaults set `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`. Command-line `--model` and `--variant` override those values for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
 
 Auto-approval is enabled by default for unattended runs. OpenCode receives `--dangerously-skip-permissions`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal approval prompts or sandbox behavior.
 
