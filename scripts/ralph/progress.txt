@@ -57,3 +57,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: d5ca2b3beb9788993ed87ef118c124e8d30f02b3
 - Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh`, dependency-gating edits in `template/.ralph/prompt.md`, and untracked source-runner files under `scripts/ralph/` remain uncommitted; they were intentionally excluded from the #9 implementation commit.
 ---
+
+## 2026-05-06 - Issue #10: Verify the reusable installer and shell tooling in CI
+- Implemented: Added `scripts/verify.sh` to syntax-check shell tooling, install the template into a temporary git repository, assert expected installed files and Ralph ignore rules, and prove repeated installs are idempotent; added GitHub Actions verification on push and pull request.
+- Verification: `bash scripts/verify.sh` OK; `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: fc5c99a5851919ad18d2876cf20309e994b0757d
+- Notes for future iterations: `scripts/verify.sh` is the lightweight repository verification command and is also run by `.github/workflows/verify.yml`.
+---
