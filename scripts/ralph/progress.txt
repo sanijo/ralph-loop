@@ -43,3 +43,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: b4d5b7ae43ce16775e565fe48c1d7d0665b0f0d6
 - Notes for future iterations: A pre-existing unstaged dependency-gating edit remains in `template/.ralph/prompt.md` and was intentionally not included in the #7 commit.
 ---
+
+## 2026-05-06 - Issue #8: Add Claude and Codex provider options
+- Implemented: Added installable Claude and Codex provider adapters alongside OpenCode, provider binary/argument overrides, Claude and OpenCode instruction bridges, and template docs for best-effort provider support.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash -n template/.ralph/ralph.sh` OK; `sh -n scripts/install.sh` OK; staged runner `bash -n` OK; staged `git diff --check` OK.
+- Commit: f5930235c3a463a904a2def0d383c91af38fc142
+- Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh` and dependency-gating edits in `template/.ralph/prompt.md` remain uncommitted; they were intentionally excluded from the #8 implementation commit.
+---
