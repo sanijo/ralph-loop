@@ -2,3 +2,11 @@
 
 RALPH_PROVIDER=opencode
 RALPH_MAX_ITERATIONS=1
+
+# Optional provider overrides. Keep local-only changes in .ralph/.env.
+# RALPH_OPENCODE_BIN=opencode
+# RALPH_OPENCODE_ARGS=
+# RALPH_CLAUDE_BIN=claude
+# RALPH_CLAUDE_ARGS=
+# RALPH_CODEX_BIN=codex
+# RALPH_CODEX_ARGS=

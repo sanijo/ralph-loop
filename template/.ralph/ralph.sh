@@ -8,7 +8,7 @@ Usage: .ralph/ralph.sh [options]
 Run Ralph issue-solving iterations in this target repository.
 
 Options:
-  --provider PROVIDER       Provider adapter to use. Default: opencode.
+  --provider PROVIDER       Provider adapter to use: opencode, claude, codex. Default: opencode.
   --model MODEL             Optional provider model override.
   --max-iterations COUNT    Maximum iterations to run. Default: 1.
   --dry-run                 Tell the agent this run must not push or close issues.
@@ -16,7 +16,7 @@ Options:
   -h, --help                Show this help.
 
 OpenCode is the default provider. Auto-approval is enabled by default for
-unattended runs and currently maps to OpenCode's --dangerously-skip-permissions.
+unattended runs and maps to each provider's best-effort non-interactive flag.
 USAGE
 }
 
@@ -117,6 +117,7 @@ mkdir -p "$LOG_DIR"
 run_opencode() {
   local prompt="$1"
   local log_file="$2"
+  local binary="${RALPH_OPENCODE_BIN:-opencode}"
   local args=(run --dir "$REPO_ROOT")
 
   if [[ -n "$model" ]]; then
@@ -127,13 +128,74 @@ run_opencode() {
     args+=(--dangerously-skip-permissions)
   fi
 
-  opencode "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+  if [[ -n "${RALPH_OPENCODE_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    args+=(${RALPH_OPENCODE_ARGS})
+  fi
+
+  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+}
+
+run_claude() {
+  local prompt="$1"
+  local log_file="$2"
+  local binary="${RALPH_CLAUDE_BIN:-claude}"
+  local args=()
+
+  if [[ -n "$model" ]]; then
+    args+=(--model "$model")
+  fi
+
+  if [[ "$auto_approve" -eq 1 ]]; then
+    args+=(--dangerously-skip-permissions)
+  fi
+
+  if [[ -n "${RALPH_CLAUDE_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    args+=(${RALPH_CLAUDE_ARGS})
+  fi
+
+  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+}
+
+run_codex() {
+  local prompt="$1"
+  local log_file="$2"
+  local binary="${RALPH_CODEX_BIN:-codex}"
+  local args=(exec)
+
+  if [[ -n "$model" ]]; then
+    args+=(--model "$model")
+  fi
+
+  if [[ "$auto_approve" -eq 1 ]]; then
+    args+=(--dangerously-bypass-approvals-and-sandbox)
+  fi
+
+  if [[ -n "${RALPH_CODEX_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    args+=(${RALPH_CODEX_ARGS})
+  fi
+
+  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
 }
 
 case "$provider" in
   opencode)
-    if ! command -v opencode >/dev/null 2>&1; then
-      printf 'Error: missing dependency for provider opencode: opencode\n' >&2
+    if ! command -v "${RALPH_OPENCODE_BIN:-opencode}" >/dev/null 2>&1; then
+      printf 'Error: missing dependency for provider opencode: %s\n' "${RALPH_OPENCODE_BIN:-opencode}" >&2
+      exit 1
+    fi
+    ;;
+  claude)
+    if ! command -v "${RALPH_CLAUDE_BIN:-claude}" >/dev/null 2>&1; then
+      printf 'Error: missing dependency for provider claude: %s\n' "${RALPH_CLAUDE_BIN:-claude}" >&2
+      exit 1
+    fi
+    ;;
+  codex)
+    if ! command -v "${RALPH_CODEX_BIN:-codex}" >/dev/null 2>&1; then
+      printf 'Error: missing dependency for provider codex: %s\n' "${RALPH_CODEX_BIN:-codex}" >&2
       exit 1
     fi
     ;;
@@ -162,6 +224,14 @@ for ((iteration = 1; iteration <= max_iterations; iteration++)); do
   case "$provider" in
     opencode)
       run_opencode "$iteration_prompt" "$log_file"
+      status=${PIPESTATUS[0]}
+      ;;
+    claude)
+      run_claude "$iteration_prompt" "$log_file"
+      status=${PIPESTATUS[0]}
+      ;;
+    codex)
+      run_codex "$iteration_prompt" "$log_file"
       status=${PIPESTATUS[0]}
       ;;
   esac
