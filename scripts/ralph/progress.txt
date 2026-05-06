@@ -1,0 +1,10 @@
+# Ralph Progress Log
+
+Append-only notes from autonomous Ralph iterations.
+
+## 2026-05-06 - Issue #2: Establish the reusable Ralph Loop repository foundation
+- Implemented: Added project-neutral README, MIT license, source `.gitignore`, template payload placeholder, and documented interim verification commands.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 94252116e4c680b79c796a1a107c174c2d93c567
+- Notes for future iterations: Dedicated verification tooling does not exist yet; use `python3 -m unittest` and `git diff --check` until issue #10 replaces this interim check.
+---
