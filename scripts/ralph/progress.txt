@@ -29,3 +29,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: 4f009cb77801465af059d20b48d7da4de376de91
 - Notes for future iterations: Issue #6 should extend this prompt with the detailed progress logging, push, close helper, and stale reconciliation workflow rather than duplicating the solving-selection contract.
 ---
+
+## 2026-05-06 - Issue #6: Commit progress and close completed GitHub issues safely
+- Implemented: Added the installable close helper and extended the Ralph prompt with real commit-hash progress logging, push-before-close requirements, single Markdown close comments, and stale implemented issue reconciliation.
+- Verification: `bash -n template/.ralph/helpers/close-issue.sh` OK; `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 9d57cb4222a838ac3fb8a9a445c8ee9ea19b7cf1
+- Notes for future iterations: The source-runner helper files under `scripts/ralph/` were pre-existing untracked work and were intentionally not committed for issue #6; issue #7 can now build on the prompt's close/push flow.
+---
