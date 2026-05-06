@@ -15,3 +15,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: f9777d20691f5406760f520939b3261b7031d646
 - Notes for future iterations: Issue #3 intentionally installs placeholder prompt/config/helper locations; later runner, provider, and prompt slices should replace or extend those managed template files.
 ---
+
+## 2026-05-06 - Issue #4: Run Ralph through the unified OpenCode provider path
+- Implemented: Added the installed `.ralph/ralph.sh` runner with OpenCode as the default provider, committed config plus ignored env loading, optional model override, default auto-approval, dry-run prompt intent, and per-run log cleanup/output.
+- Verification: `bash -n template/.ralph/ralph.sh` OK; `python3 -m unittest` OK; `git diff --check` OK; installed runner help smoke test OK.
+- Commit: f7e66c82d617fb419f05a2f4e467ecdd3a56df88
+- Notes for future iterations: Provider support is intentionally limited to OpenCode until issue #8 adds Claude and Codex adapters; close helper and notification files remain untracked prior work and were not part of issue #4.
+---
