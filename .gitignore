@@ -20,4 +20,5 @@ tmp/
 temp/
 
 # Ralph run-local state in this source checkout
+scripts/
 scripts/ralph/.env
