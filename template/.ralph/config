@@ -1,5 +1,4 @@
-# Ralph Loop committed defaults.
-# Copy local secrets and machine-specific overrides to .ralph/.env.
+# Ralph Loop committed defaults. Keep secrets in ignored .ralph/.env.
 
 RALPH_PROVIDER=opencode
 RALPH_MAX_ITERATIONS=1
