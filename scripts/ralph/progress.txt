@@ -50,3 +50,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: f5930235c3a463a904a2def0d383c91af38fc142
 - Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh` and dependency-gating edits in `template/.ralph/prompt.md` remain uncommitted; they were intentionally excluded from the #8 implementation commit.
 ---
+
+## 2026-05-06 - Issue #9: Add optional Telegram notifications for Ralph runs
+- Implemented: Added installable Telegram notification configuration, non-fatal notification helper, chat ID discovery helper with webhook/getUpdates caveats, and runner hooks for iteration, completion, blocked, error, and max-iteration states.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash -n template/.ralph/ralph.sh` OK; `bash -n template/.ralph/helpers/notify.sh` OK; `bash -n template/.ralph/helpers/telegram-chat-id.sh` OK; `RALPH_NOTIFY= bash template/.ralph/helpers/notify.sh ITERATION_COMPLETE test` OK.
+- Commit: d5ca2b3beb9788993ed87ef118c124e8d30f02b3
+- Notes for future iterations: Pre-existing unstaged tracker-snapshot edits in `template/.ralph/ralph.sh`, dependency-gating edits in `template/.ralph/prompt.md`, and untracked source-runner files under `scripts/ralph/` remain uncommitted; they were intentionally excluded from the #9 implementation commit.
+---
