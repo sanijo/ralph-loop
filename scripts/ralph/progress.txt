@@ -64,3 +64,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: fc5c99a5851919ad18d2876cf20309e994b0757d
 - Notes for future iterations: `scripts/verify.sh` is the lightweight repository verification command and is also run by `.github/workflows/verify.yml`.
 ---
+
+## 2026-05-06 - Issue #11: Document adoption and operating workflow end-to-end
+- Implemented: Expanded the source README with end-to-end Ralph adoption docs covering installation, dry-run and force behavior, target repository effects, provider selection, model overrides, auto-approval, GitHub Issues expectations, branch and progress workflow, issue closing, Telegram notifications, local verification, and CI.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK; `bash scripts/verify.sh` OK.
+- Commit: ff6d8f53ada5f4e52eea90ce5c2bac8e27c42b75
+- Notes for future iterations: This completes the final open implementation issue in the PRD-backed workstream; only the parent PRD issue remains open for human/project closure.
+---
