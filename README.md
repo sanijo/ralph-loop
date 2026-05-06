@@ -27,7 +27,7 @@ Installed files include:
 - `.ralph/helpers/notify.sh`: optional notification helper.
 - `.ralph/helpers/telegram-chat-id.sh`: Telegram chat ID discovery helper.
 - `.ralph/progress.md`: append-only progress log.
-- `.opencode/agent/ralph.md`: OpenCode bridge.
+- `.opencode/agents/ralph.md`: OpenCode bridge.
 - `CLAUDE.md`: Claude Code bridge.
 - `AGENTS.md`: target repository agent instructions stub.
 - `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`: tracker conventions for agents.

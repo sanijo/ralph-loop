@@ -42,7 +42,7 @@ expected_files=(
   '.ralph/helpers/notify.sh'
   '.ralph/helpers/telegram-chat-id.sh'
   '.ralph/progress.md'
-  '.opencode/agent/ralph.md'
+  '.opencode/agents/ralph.md'
   'AGENTS.md'
   'CLAUDE.md'
   'README.md'

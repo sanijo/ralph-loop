@@ -21,7 +21,7 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-Claude and Codex support is best-effort until those CLIs are available in your local environment or CI. Claude uses the installed `CLAUDE.md` bridge, OpenCode uses `.opencode/agent/ralph.md`, and Codex relies on canonical `AGENTS.md` instructions.
+Claude and Codex support is best-effort until those CLIs are available in your local environment or CI. Claude uses the installed `CLAUDE.md` bridge, OpenCode uses `.opencode/agents/ralph.md`, and Codex relies on canonical `AGENTS.md` instructions.
 
 Auto-approval is enabled by default for unattended runs. For OpenCode, this means the runner passes `--dangerously-skip-permissions`; use `--no-auto-approve` to disable it.
 
