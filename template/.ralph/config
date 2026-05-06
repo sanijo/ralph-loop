@@ -1,0 +1,5 @@
+# Ralph Loop committed defaults.
+# Copy local secrets and machine-specific overrides to .ralph/.env.
+
+RALPH_PROVIDER=opencode
+RALPH_MAX_ITERATIONS=1
