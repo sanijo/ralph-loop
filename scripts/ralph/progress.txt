@@ -8,3 +8,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: 94252116e4c680b79c796a1a107c174c2d93c567
 - Notes for future iterations: Dedicated verification tooling does not exist yet; use `python3 -m unittest` and `git diff --check` until issue #10 replaces this interim check.
 ---
+
+## 2026-05-06 - Issue #3: Install a minimal Ralph template into a target git repository
+- Implemented: Added a minimal installer with target git worktree validation, dry-run and force modes, idempotent template copying, managed `.gitignore` setup, and initial target `.ralph/` plus agent docs placeholders.
+- Verification: `sh -n scripts/install.sh` OK; `python3 -m unittest` OK; `git diff --check` OK; installer dry-run/install/idempotence smoke test OK.
+- Commit: f9777d20691f5406760f520939b3261b7031d646
+- Notes for future iterations: Issue #3 intentionally installs placeholder prompt/config/helper locations; later runner, provider, and prompt slices should replace or extend those managed template files.
+---
