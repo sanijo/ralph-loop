@@ -22,3 +22,10 @@ Append-only notes from autonomous Ralph iterations.
 - Commit: f7e66c82d617fb419f05a2f4e467ecdd3a56df88
 - Notes for future iterations: Provider support is intentionally limited to OpenCode until issue #8 adds Claude and Codex adapters; close helper and notification files remain untracked prior work and were not part of issue #4.
 ---
+
+## 2026-05-06 - Issue #5: Implement the GitHub Issues solving contract
+- Implemented: Replaced the installable Ralph prompt placeholder with a GitHub Issues solving contract covering instruction discovery, PRD and implementation issue discovery, label gating, blockers, one-feature scope, dirty-worktree safeguards, documented verification requirements, and exact complete/blocked signals.
+- Verification: `python3 -m unittest` OK; `git diff --check` OK.
+- Commit: 4f009cb77801465af059d20b48d7da4de376de91
+- Notes for future iterations: Issue #6 should extend this prompt with the detailed progress logging, push, close helper, and stale reconciliation workflow rather than duplicating the solving-selection contract.
+---
