@@ -11,7 +11,7 @@ Do not batch multiple issues. Do not continue into another feature after complet
 ## Discover Project State
 
 1. Read target repository instructions before selecting work: `AGENTS.md`, `README.md`, and files under `docs/agents/` when they exist.
-2. Use the GitHub CLI from the repository root for issue tracker operations.
+2. Use the GitHub MCP for all supported GitHub operations when available. Use GitHub CLI (`gh`) only when the MCP is unavailable or lacks the needed operation.
 3. Discover the parent PRD issue from tracker and repo context. Prefer explicit instructions in repo docs. Otherwise identify PRDs by title/body signals such as `PRD`, `Problem Statement`, `User Stories`, `Implementation Decisions`, `Testing Decisions`, or `Out of Scope`.
 4. Discover implementation issues derived from the PRD. Prefer explicit dependency outlines in repo docs. Otherwise use issue body references, comments, labels, and tracker context.
 5. Respect dependency notes, `Blocked by` sections, sequencing notes, and comments from repo docs and issue bodies.
@@ -61,13 +61,13 @@ Selection priority for stale implemented issues:
 
 For the selected stale implemented issue:
 
-1. Fetch it with comments using `gh issue view <number> --comments`.
+1. Fetch it with comments using the GitHub MCP when available, otherwise `gh issue view <number> --comments`.
 2. Identify the existing implementation commit hash with `git log`.
 3. Run the repo-specific verification commands.
 4. Append a progress entry using the normal progress log format. In `Notes for future iterations`, state that this was tracker reconciliation for work already present on the branch.
 5. Commit only the progress-log change, if the progress log changed, with a message like `chore: reconcile Ralph progress for #<number>`.
 6. Push the workstream branch to the default remote before closing the issue. Use `git push -u origin <branch>` when the branch has no upstream, otherwise use `git push`.
-7. Close the issue using `.ralph/helpers/close-issue.sh` with a single final Markdown comment that includes what existing pushed commit implemented it, verification commands run, and any pushed progress-log commit hash.
+7. Close the issue using the GitHub MCP when available, with a single final Markdown comment that includes what existing pushed commit implemented it, verification commands run, and any pushed progress-log commit hash. If the MCP is unavailable, use `.ralph/helpers/close-issue.sh` with the same comment.
 8. Stop this iteration normally. Do not start another feature.
 
 Do not create an artificial implementation commit for a stale implemented issue. If verification fails, acceptance criteria are unclear, or no existing implementation commit can be identified with high confidence, do not reconcile it; continue with normal eligibility rules or output `<promise>BLOCKED</promise>` if nothing is safely actionable.
@@ -82,7 +82,7 @@ Selection priority:
 2. Issues that unblock the most later work.
 3. Lowest issue number as a deterministic tie-breaker.
 
-Fetch the selected issue with comments before coding:
+Fetch the selected issue with comments before coding. Use the GitHub MCP when available; otherwise use:
 
 ```bash
 gh issue view <number> --comments
@@ -148,11 +148,11 @@ After implementation and verification pass:
 4. Append progress to `.ralph/progress.md`. The progress entry must include the real implementation commit hash from `git rev-parse HEAD`; never write placeholders such as `pending`, `(this commit)`, or `TBD`.
 5. If appending progress changed the worktree, commit only the progress-log change with a message like `chore: record Ralph progress for #<number>` and capture that progress commit hash. If the progress entry was already included in the implementation commit, do not create an empty progress commit. The progress-log commit is separate from the implementation commit and must not replace the implementation commit hash in the progress entry.
 6. Push the workstream branch to the default remote before posting the final issue comment. Use `git push -u origin <branch>` when the branch has no upstream, otherwise use `git push`.
-7. After push succeeds, derive the remote commit URL when possible with `gh browse --commit <hash> --no-browser`, or include the pushed commit hash if URL derivation is unavailable.
-8. Close the completed GitHub issue with `.ralph/helpers/close-issue.sh` and a single final Markdown comment that includes what was implemented, verification commands run, the pushed implementation commit URL or hash, and the pushed progress commit URL or hash when a separate progress commit was created.
+7. After push succeeds, derive the remote commit URL when possible with the GitHub MCP. If the MCP is unavailable or cannot provide it, use `gh browse <hash> --no-browser`, or construct a GitHub commit URL in the form `https://github.com/<owner>/<repo>/commit/<hash>` when the repository owner/name is known. Only include a raw pushed commit hash if a URL cannot be derived or constructed. Do not use `gh browse --commit <hash>`; this form is not supported by all installed `gh` versions.
+8. Close the completed GitHub issue with the GitHub MCP when available, using a single final Markdown comment that includes what was implemented, verification commands run, the pushed implementation commit URL or hash, and the pushed progress commit URL or hash when a separate progress commit was created. If the MCP is unavailable, use `.ralph/helpers/close-issue.sh` with the same comment.
 9. Stop after completing one issue. Do not start another feature.
 
-Use a heredoc for the final close comment:
+When using the helper fallback, use a heredoc for the final close comment:
 
 ```bash
 .ralph/helpers/close-issue.sh <number> <<'EOF'

@@ -62,7 +62,7 @@ Before running Ralph in a target repository, replace the installed stubs with re
 - Document the exact verification commands in `AGENTS.md`.
 - Commit the installed template files and configuration before starting unattended runs.
 
-Ralph expects GitHub Issues and uses `gh` from inside the target clone. Implementation issues must be `OPEN`, labeled with the tracker label that maps to `ready-for-agent`, derived from the relevant PRD or workstream, and not blocked by another open dependency. Issues labeled as `needs-triage`, `needs-info`, `ready-for-human`, or `wontfix` are not solver work.
+Ralph expects GitHub Issues and uses the GitHub MCP for supported tracker operations when available, falling back to `gh` from inside the target clone when needed. Implementation issues must be `OPEN`, labeled with the tracker label that maps to `ready-for-agent`, derived from the relevant PRD or workstream, and not blocked by another open dependency. Issues labeled as `needs-triage`, `needs-info`, `ready-for-human`, or `wontfix` are not solver work.
 
 ## Running Ralph
 
@@ -77,7 +77,7 @@ Useful options:
 ```bash
 .ralph/ralph.sh --dry-run
 .ralph/ralph.sh --max-iterations 3
-.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant low
+.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant high
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
 ```
@@ -105,7 +105,7 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-The installed config includes commented examples for `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`. When model or variant are unset, Ralph omits those provider flags and lets the provider choose its defaults. Command-line `--model` and `--variant` override config for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
+The installed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high` by default. When model or variant are unset, Ralph omits those provider flags and lets the provider choose its defaults. Command-line `--model` and `--variant` override config for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
 
 Auto-approval is enabled by default for unattended runs. OpenCode receives `--dangerously-skip-permissions`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal approval prompts or sandbox behavior.
 

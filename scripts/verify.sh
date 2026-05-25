@@ -79,10 +79,15 @@ printf '<promise>COMPLETE</promise>\n'
 FAKE_OPENCODE
 chmod +x "$fake_bin/opencode"
 
-RALPH_MODEL= RALPH_VARIANT= RALPH_FAKE_OPENCODE_ARGS="$fake_opencode_args" PATH="$fake_bin:$PATH" bash "$target/.ralph/ralph.sh" >/dev/null
+RALPH_FAKE_OPENCODE_ARGS="$fake_opencode_args" PATH="$fake_bin:$PATH" bash "$target/.ralph/ralph.sh" >/dev/null
 
-if grep -Fxq -- '--model' "$fake_opencode_args" || grep -Fxq -- '--variant' "$fake_opencode_args"; then
-  printf 'Installed runner passed model or variant without configured values\n' >&2
+if ! grep -Fxq -- '--model' "$fake_opencode_args" || ! grep -Fxq -- 'openai/gpt-5.5' "$fake_opencode_args"; then
+  printf 'Installed runner did not pass configured OpenCode model\n' >&2
+  exit 1
+fi
+
+if ! grep -Fxq -- '--variant' "$fake_opencode_args" || ! grep -Fxq -- 'high' "$fake_opencode_args"; then
+  printf 'Installed runner did not pass configured OpenCode variant\n' >&2
   exit 1
 fi
 

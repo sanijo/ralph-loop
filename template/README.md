@@ -8,7 +8,7 @@ Run Ralph from an installed target repository with:
 .ralph/ralph.sh
 ```
 
-The installed runner selects OpenCode by default, loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. The committed config includes commented examples for `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=low`; command-line `--model` and `--variant` override config for one run.
+The installed runner selects OpenCode by default, loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. The committed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high`; command-line `--model` and `--variant` override config for one run.
 
 Provider binaries and extra arguments can be overridden without editing the runner:
 
@@ -29,7 +29,7 @@ Useful options:
 
 ```bash
 .ralph/ralph.sh --dry-run
-.ralph/ralph.sh --model openai/gpt-5.5 --variant low --max-iterations 3
+.ralph/ralph.sh --model openai/gpt-5.5 --variant high --max-iterations 3
 .ralph/ralph.sh --provider opencode --no-auto-approve
 .ralph/ralph.sh --provider claude
 .ralph/ralph.sh --provider codex
