@@ -16,6 +16,19 @@ Authenticate `gh`; install Bash, Git, jq and your provider CLI before running.
 .ralph/ralph.sh --cleanup
 ```
 
+## Overview
+
+1. Plan with the `grill-me`, `to-spec` and `to-tickets` skills
+   ([mattpocock/skills](https://github.com/mattpocock/skills)). `to-spec`
+   writes a PRD issue. `to-tickets` splits it into implementation issues, with
+   native sub-issue and "blocked by" links. Label the ready ones
+   `ready-for-agent`. In these skills a "spec" is a PRD and a "ticket" is an
+   implementation issue.
+2. Run `.ralph/ralph.sh`. It implements one eligible issue per iteration in the
+   PRD's worktree, verifies the result, then pushes and closes the issue.
+3. Review the PRD's single PR once it is marked ready for review, and merge it.
+   Then run `.ralph/ralph.sh --cleanup`.
+
 ## Modes
 
 By default the provider runs headlessly and unattended. `--dry-run` selects an
@@ -134,9 +147,7 @@ OpenCode is default; config pins `RALPH_MODEL=openai/gpt-5.5` and
 
 `RALPH_EFFORT` is the provider-neutral reasoning level. OpenCode receives it as
 `--model provider/model#effort`, Claude as `--effort`, and Codex as
-`-c model_reasoning_effort=<level>`. Empty effort omits it. It replaces v1's
-`RALPH_VARIANT`/`--variant` outright, with no alias. Rename the setting in
-`.ralph/config` and `.ralph/.env` when upgrading.
+`-c model_reasoning_effort=<level>`. Empty effort omits it.
 
 Headless adapters use OpenCode `run`, Claude `--print`, and Codex `exec`, all
 inside the worktree with stdin from `/dev/null`, in their own process group. Auto-approval is enabled by default (`--auto`,
@@ -163,7 +174,7 @@ Override provider binaries and whitespace-separated extra arguments with
 `RALPH_OPENCODE_BIN`/`RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`/`RALPH_CLAUDE_ARGS`,
 or `RALPH_CODEX_BIN`/`RALPH_CODEX_ARGS` in local settings.
 
-## Notifications and upgrades
+## Notifications
 
 For optional Telegram notifications, copy `.ralph/.env.example` to `.ralph/.env`,
 set `RALPH_NOTIFY=telegram`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`.
@@ -175,12 +186,28 @@ its outcome and the PR link (`RALPH_NOTIFY_ON_ITERATION=0` turns these off).
 The end of the run sends the terminal result with the run summary.
 Notification failures never fail the run or change its exit code.
 
-Installer updates skip identical managed files (runner, prompt, helpers,
-provider bridges, Claude settings, this file) and skip conflicting ones unless
-forced. Seed files (`AGENTS.md`, `CLAUDE.md`, `.ralph/config`, `docs/agents/`)
-are created only when missing and never overwritten, even with `--force`. The
-Ralph `.gitignore` block is rewritten in place, so v1 blocks gain
-`.ralph/worktrees/`. The obsolete v1 `.ralph/progress.md`,
-`.ralph/helpers/close-issue.sh` and target-root `README.md` usage notes are not
-used or deleted by updates. Prompt completion markers and prompt-level dry-run
-are no longer used.
+## v2 decisions
+
+- **Runner owns control**: the runner selects, verifies, pushes, closes issues
+  and manages the PR. The agent only implements and commits locally.
+- **One worktree and one PR per PRD workstream.**
+- **Run modes**: unattended by default, plus `--dry-run` and `--interactive`.
+  There is no local mode.
+- **Reasoning setting**: `RALPH_EFFORT`/`--effort` replaces v1's
+  `RALPH_VARIANT`/`--variant`, with no alias. Rename it in `.ralph/config` and
+  `.ralph/.env` when upgrading.
+- **Claude safety settings file**: `.ralph/claude-settings.json` denies pushing
+  and tracker changes for every Claude session.
+- **Seed versus managed files**: installer updates skip identical managed files
+  (runner, prompt, helpers, OpenCode bridge, Claude settings,
+  `.env.example`, this file). They skip conflicting ones unless you pass
+  `--force`. Seed files (`AGENTS.md`, `CLAUDE.md`, `.ralph/config`,
+  `docs/agents/`) are created only when missing and never overwritten, even
+  with `--force`. The Ralph `.gitignore` block is rewritten in place, so v1
+  blocks gain `.ralph/worktrees/`.
+- **Close on push**: issues close when verified commits are pushed, before the
+  PR merges.
+- **v1 files no longer used**: `.ralph/progress.md`,
+  `.ralph/helpers/close-issue.sh` and the target-root `README.md` usage notes.
+  Updates neither use nor delete them, so remove them after review. Promise
+  markers and the prompt-level dry run are gone too.
