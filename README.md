@@ -69,13 +69,36 @@ Each workstream gets one PR from its branch to the default branch:
 
 **Issues close on push, before merge.** Closing at push time keeps issue selection simple: blockers clear as soon as verified work is on the branch, so later issues in the PRD can build on it. The trade-off is that a closed issue does not mean the work is on the default branch. Review and merge the PR to deliver it. If you abandon a workstream, close its PR and reopen its issues manually.
 
-Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider. Current exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` iteration or tracker-query failure, `4` configuration/precondition error, `5` blocked. Any iteration failure currently stops without publishing that iteration; local changes remain for inspection. Provider/verify logs are under `.ralph/logs/`.
+Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider. Provider/verify logs are under `.ralph/logs/`.
 
-This is not yet the complete v2 workflow. Remote-only branch resume, locking, failure recovery, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
+### Iteration outcomes and failures
+
+Every iteration ends with one outcome:
+
+| Outcome | Meaning |
+| --- | --- |
+| `success` | Verified commits were pushed and the issue closed |
+| `provider-error` | The provider exited non-zero |
+| `timeout` | The provider ran longer than `RALPH_ITERATION_TIMEOUT` seconds (default `3600`, `0` disables) and its process group was stopped |
+| `no-commit` | No new commit descending from the pre-iteration head on the workstream branch (including a changed branch or rewritten history) |
+| `dirty-worktree` | Uncommitted or untracked files remain after the session |
+| `verify-failed` | The verify command failed or changed the worktree |
+| `agent-blocked` | The agent wrote a reason to the blocker-report file |
+
+On any failure the runner:
+
+1. Resets the workstream branch and worktree to the pre-iteration commit. Nothing is pushed.
+2. Posts one **failure comment** on the issue. It starts with the hidden marker `<!-- ralph-failure: <outcome> -->` and gives the outcome, the reason, the agent's blocker report, or the last 20 lines of verify output when relevant.
+3. Counts the issue's earlier marked failure comments. When this failure reaches `RALPH_MAX_FAILURES` (default `2`), it replaces the ready label with the needs-info label. An agent-reported blocker relabels immediately. Fix the issue and restore the ready label to retry it; earlier failure comments still count, so delete them to reset the count.
+4. Skips the failed issue for the rest of the run and continues with the next eligible issue. Failed iterations count towards `--max-iterations`. A failed `--issue` target ends the run.
+
+Exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` runner failure (tracker query, push or publishing), `4` configuration/precondition error, `5` blocked, `6` **finished with failures** (any iteration failed; takes precedence over `0`, `1` and `5`). A rejected push or a tracker error after the push stops the run with `3` and leaves the worktree for inspection.
+
+This is not yet the complete v2 workflow. Remote-only branch resume, locking, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
 
 ### Providers and approval
 
-OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
+OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
 
 Config currently pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high`. Empty model omits the model flag. OpenCode receives the variant as `--model provider/model#variant`; empty variant leaves the model unchanged. Claude and Codex ignore variant. Choose a model supported by the selected CLI.
 
@@ -106,6 +129,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, verification failures, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

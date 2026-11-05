@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Record a provider invocation and execute a scenario-owned action script."""
 
+import json
 import os
 import subprocess
 import sys
@@ -10,8 +11,16 @@ from pathlib import Path
 from support import load, record
 
 
+PROVIDERS = ("opencode", "claude", "codex")
+
 record(Path(sys.argv[0]).name)
 script = load(os.environ["RALPH_TEST_PROVIDER_SCRIPT"])
+if isinstance(script, dict) and "sessions" in script:
+    # The Nth provider invocation of a scenario runs sessions[N-1]; later ones do nothing.
+    events = Path(os.environ["RALPH_TEST_EVENTS"]).read_text().splitlines()
+    session = sum(json.loads(line)["tool"] in PROVIDERS for line in events) - 1
+    sessions = script["sessions"]
+    script = sessions[session] if session < len(sessions) else {"action": "noop"}
 # A script is one step or a list of steps, e.g. commit then leave dirty files.
 steps = script if isinstance(script, list) else [script]
 for step in steps:

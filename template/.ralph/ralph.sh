@@ -61,6 +61,11 @@ excluded_labels=(
   "${RALPH_LABEL_READY_FOR_HUMAN:-ready-for-human}"
   "${RALPH_LABEL_WONTFIX:-wontfix}"
 )
+needs_info_label="${RALPH_LABEL_NEEDS_INFO:-needs-info}"
+iteration_timeout="${RALPH_ITERATION_TIMEOUT:-3600}"
+max_failures="${RALPH_MAX_FAILURES:-2}"
+# Hidden marker that identifies Ralph failure comments, followed by the outcome.
+FAILURE_MARKER='<!-- ralph-failure'
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -141,6 +146,15 @@ for target in "$target_prd" "$target_issue"; do
   fi
 done
 
+if [[ ! "$iteration_timeout" =~ ^[0-9]+$ ]]; then
+  printf 'Error: RALPH_ITERATION_TIMEOUT must be a number of seconds (0 disables)\n' >&2
+  exit 4
+fi
+if [[ ! "$max_failures" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'Error: RALPH_MAX_FAILURES must be a positive integer\n' >&2
+  exit 4
+fi
+
 if [[ ! -f "$PROMPT_FILE" ]]; then
   printf 'Error: missing prompt file: %s\n' "$PROMPT_FILE" >&2
   exit 4
@@ -166,7 +180,18 @@ cd "$REPO_ROOT"
 tracker_init || exit 4
 mkdir -p "$LOG_DIR" "$SCRIPT_DIR/tmp"
 RUN_TMP="$(mktemp -d "$SCRIPT_DIR/tmp/run.XXXXXX")"
-trap 'rm -rf "$RUN_TMP"' EXIT
+provider_job='' watchdog_job=''
+failed_issues='' failure_summary=''
+
+# Stops the provider session and its timeout watchdog, each a process group.
+# shellcheck disable=SC2329 # Invoked by the EXIT trap.
+stop_jobs() {
+  local job
+  for job in "$provider_job" "$watchdog_job"; do
+    [[ -z "$job" ]] || kill -TERM -- "-$job" 2>/dev/null || true
+  done
+}
+trap 'stop_jobs; rm -rf "$RUN_TMP"' EXIT
 
 notify_ralph() {
   local notify_status="$1"
@@ -190,6 +215,7 @@ notify_ralph() {
     bash "$NOTIFY_SCRIPT" "$notify_status" "$summary" || true
 }
 
+# shellcheck disable=SC2329 # Invoked as run_$provider.
 run_opencode() {
   local prompt="$1"
   local log_file="$2"
@@ -216,6 +242,7 @@ run_opencode() {
   (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
+# shellcheck disable=SC2329 # Invoked as run_$provider.
 run_claude() {
   local prompt="$1"
   local log_file="$2"
@@ -238,6 +265,7 @@ run_claude() {
   (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
+# shellcheck disable=SC2329 # Invoked as run_$provider.
 run_codex() {
   local prompt="$1"
   local log_file="$2"
@@ -293,13 +321,24 @@ if [[ -n "$variant" ]]; then
   printf 'Variant override: %s\n' "$variant"
 fi
 
+finish_with_failures() {
+  printf 'FINISHED_WITH_FAILURES: failed iteration(s):\n%s\n' "$failure_summary"
+  notify_ralph 'FINISHED_WITH_FAILURES' "Failed iteration(s): $failure_summary" 6
+  exit 6
+}
+
 complete_run() {
+  [[ -z "$failed_issues" ]] || finish_with_failures
   printf 'COMPLETE: %s\n' "${1:-no eligible open $ready_label issues remain.}"
   notify_ralph 'COMPLETE' 'All ready issues are complete.' 0
   exit 0
 }
 
 blocked_run() {
+  if [[ -n "$failed_issues" ]]; then
+    printf 'No eligible issue remains:\n%s\n' "$blocked_reasons"
+    finish_with_failures
+  fi
   printf 'BLOCKED: no eligible issue:\n%s\n' "$blocked_reasons"
   notify_ralph 'BLOCKED' "No eligible issue. $blocked_reasons" 5
   exit 5
@@ -409,8 +448,13 @@ select_issue() {
   pr_heads="$(tracker_open_pr_heads)" || fail_selection 'listing open pull requests'
   while IFS= read -r candidate; do
     [[ -n "$candidate" ]] || continue
-    evaluate_candidate "$candidate"
     n="$(jq -r '.number' <<<"$candidate")"
+    # A failed issue is not retried within the same run.
+    if [[ " $failed_issues " == *" $n "* ]]; then
+      blocked_reasons+="${blocked_reasons:+$'\n'}- #$n: failed earlier in this run"
+      continue
+    fi
+    evaluate_candidate "$candidate"
     if [[ "$candidate_reason" == prd ]]; then
       [[ -z "$target_issue" ]] || { blocked_reasons="- #$n: issue is a PRD"; blocked_run; }
       continue
@@ -500,6 +544,119 @@ publish_pr() {
   fi
 }
 
+# Runs the provider in its own process group so the iteration timeout can stop
+# the whole process tree. Sets status; creates $timeout_marker on timeout.
+run_provider_session() {
+  rm -f "$timeout_marker"
+  set -m
+  "run_$provider" "$iteration_prompt" "$log_file" </dev/null &
+  provider_job=$!
+  if [[ "$iteration_timeout" -gt 0 ]]; then
+    (
+      sleep "$iteration_timeout"
+      : >"$timeout_marker"
+      kill -TERM -- "-$provider_job" 2>/dev/null || exit 0
+      sleep 10
+      kill -KILL -- "-$provider_job" 2>/dev/null || true
+    ) </dev/null >/dev/null 2>&1 &
+    watchdog_job=$!
+  fi
+  set +m
+  status=0
+  wait "$provider_job" || status=$?
+  provider_job=''
+  if [[ -n "$watchdog_job" ]]; then
+    kill -TERM -- "-$watchdog_job" 2>/dev/null || true
+    wait "$watchdog_job" 2>/dev/null || true
+    watchdog_job=''
+  fi
+}
+
+# Runs the verify command in the worktree. Sets outcome/reason/detail on failure.
+run_verify() {
+  local verify_log="$RUN_TMP/verify-$iteration.log" verify_status=0
+  (cd "$worktree" && bash -c "$verify_command") </dev/null 2>&1 | tee "$verify_log" || verify_status=$?
+  cat "$verify_log" >>"$log_file"
+  if [[ "$verify_status" -ne 0 ]]; then
+    outcome=verify-failed reason="verify command exited $verify_status"
+    detail="$(printf 'Verify output (last 20 lines):\n\n~~~text\n%s\n~~~' "$(tail -n 20 "$verify_log")")"
+  elif [[ "$(git -C "$worktree" rev-parse HEAD)" != "$after" ||
+          "$(git -C "$worktree" branch --show-current)" != "$branch" ||
+          -n "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]]; then
+    outcome=verify-failed reason='verification changed the worktree'
+  fi
+}
+
+# Classifies the finished session. Sets outcome (empty on success), reason and detail.
+classify_iteration() {
+  outcome='' reason='' detail=''
+  after="$(git -C "$worktree" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -f "$timeout_marker" ]]; then
+    outcome=timeout reason="provider exceeded the ${iteration_timeout}s iteration timeout"
+  elif [[ -f "$RALPH_BLOCKER_FILE" ]]; then
+    outcome=agent-blocked reason='the agent reported a blocker'
+    detail="$(head -n 50 "$RALPH_BLOCKER_FILE" | sed 's/^/> /')"
+  elif [[ "$status" -ne 0 ]]; then
+    outcome=provider-error reason="provider exited $status"
+  elif [[ "$(git -C "$worktree" branch --show-current 2>/dev/null)" != "$branch" ]]; then
+    outcome=no-commit reason='agent changed branch'
+  elif [[ "$after" == "$before" ]]; then
+    outcome=no-commit reason='no new commit'
+  elif ! git -C "$worktree" merge-base --is-ancestor "$before" "$after"; then
+    outcome=no-commit reason='agent rewrote existing history'
+  elif [[ -n "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]]; then
+    outcome=dirty-worktree reason='uncommitted changes remain in the worktree'
+  else
+    run_verify
+  fi
+}
+
+# Handles a failed iteration: resets the workstream branch, posts one marked
+# failure comment, relabels at the failure limit and skips the issue for this run.
+record_failure() {
+  local comment_file="$RUN_TMP/failure-$iteration.md" previous failures relabel=0
+  printf 'Iteration %s: issue #%s failed (%s): %s. See %s\n' \
+    "$iteration" "$number" "$outcome" "$reason" "$log_file" >&2
+  if ! git -C "$worktree" checkout --quiet --force -B "$branch" "$before" ||
+     ! git -C "$worktree" clean -fdq; then
+    printf 'Error: could not reset %s to %s in %s\n' "$branch" "$before" "$worktree" >&2
+    notify_ralph 'ERROR' "Issue #$number: could not reset $branch after $outcome." 3 "$status" "$iteration"
+    exit 3
+  fi
+  previous="$(jq --arg marker "$FAILURE_MARKER" \
+    '[.comments[]? | select(.body // "" | contains($marker))] | length' <<<"$issue")"
+  failures=$((previous + 1))
+  if [[ "$outcome" == agent-blocked || "$failures" -ge "$max_failures" ]]; then
+    relabel=1
+  fi
+  {
+    printf '%s: %s -->\n' "$FAILURE_MARKER" "$outcome"
+    # Backticks are Markdown, not shell substitutions.
+    # shellcheck disable=SC2016
+    printf 'Ralph iteration failed: `%s`\n\nReason: %s.\n\n' "$outcome" "$reason"
+    [[ -z "$detail" ]] || printf '%s\n\n' "$detail"
+    # shellcheck disable=SC2016
+    printf 'The workstream branch `%s` was reset to its state before the iteration; nothing was pushed.\n\n' "$branch"
+    if [[ "$relabel" -eq 1 && "$outcome" == agent-blocked ]]; then
+      # shellcheck disable=SC2016
+      printf 'An agent-reported blocker needs a human: replaced `%s` with `%s`.\n' "$ready_label" "$needs_info_label"
+    elif [[ "$relabel" -eq 1 ]]; then
+      # shellcheck disable=SC2016
+      printf 'Failure %s (limit %s): replaced `%s` with `%s`.\n' "$failures" "$max_failures" "$ready_label" "$needs_info_label"
+    else
+      # shellcheck disable=SC2016
+      printf 'Failure %s of %s before `%s` is replaced with `%s`.\n' "$failures" "$max_failures" "$ready_label" "$needs_info_label"
+    fi
+  } >"$comment_file"
+  tracker_comment "$number" "$comment_file" || fail_iteration 'posting the failure comment failed'
+  if [[ "$relabel" -eq 1 ]]; then
+    tracker_relabel "$number" "$ready_label" "$needs_info_label" || fail_iteration 'relabelling the issue failed'
+  fi
+  failed_issues+=" $number"
+  failure_summary+="${failure_summary:+$'\n'}- #$number: $outcome ($reason)"
+  notify_ralph 'ITERATION_FAILED' "Issue #$number: $outcome ($reason)." 6 "$status" "$iteration"
+}
+
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
   select_issue
   issue="$(tracker_issue "$number")"
@@ -543,36 +700,17 @@ $(jq -r '.body // ""' <<<"$issue")
 ### Issue comments
 $(jq -r '.comments[]? | .body' <<<"$issue")"
 
-  set +e
-  case "$provider" in
-    opencode)
-      run_opencode "$iteration_prompt" "$log_file"
-      status=$?
-      ;;
-    claude)
-      run_claude "$iteration_prompt" "$log_file"
-      status=$?
-      ;;
-    codex)
-      run_codex "$iteration_prompt" "$log_file"
-      status=$?
-      ;;
-  esac
-  set -e
-
-  [[ "$status" -eq 0 ]] || fail_iteration "provider exited $status"
-  [[ ! -f "$RALPH_BLOCKER_FILE" ]] || fail_iteration "agent blocked: $(<"$RALPH_BLOCKER_FILE")"
-  after="$(git -C "$worktree" rev-parse HEAD)"
-  [[ "$(git -C "$worktree" branch --show-current)" == "$branch" ]] || fail_iteration 'agent changed branch'
-  [[ "$after" != "$before" ]] || fail_iteration 'no new commit'
-  git -C "$worktree" merge-base --is-ancestor "$before" "$after" || fail_iteration 'agent rewrote existing history'
-  [[ -z "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]] || fail_iteration 'dirty worktree'
-  if ! (cd "$worktree" && bash -c "$verify_command") 2>&1 | tee -a "$log_file"; then
-    fail_iteration 'verification failed'
+  timeout_marker="$RUN_TMP/timeout-$iteration"
+  run_provider_session
+  if [[ -f "$timeout_marker" ]]; then
+    printf 'Ralph: provider stopped after the %ss iteration timeout\n' "$iteration_timeout" | tee -a "$log_file"
   fi
-  [[ "$(git -C "$worktree" rev-parse HEAD)" == "$after" &&
-     "$(git -C "$worktree" branch --show-current)" == "$branch" &&
-     -z "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]] || fail_iteration 'verification changed the worktree'
+  classify_iteration
+  if [[ -n "$outcome" ]]; then
+    record_failure
+    [[ -z "$target_issue" ]] || finish_with_failures
+    continue
+  fi
   git -C "$worktree" push -u origin "$branch" || fail_iteration 'push failed'
   comment_file="$RUN_TMP/close-$number.md"
   {
@@ -592,8 +730,9 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
   [[ -z "$target_issue" ]] || complete_run "targeted issue #$target_issue is complete."
 done
 
-# Exits COMPLETE or BLOCKED when no eligible issue remains.
+# Exits COMPLETE, BLOCKED or FINISHED_WITH_FAILURES when no eligible issue remains.
 select_issue
 printf 'MAX_ITERATIONS: finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
+[[ -z "$failed_issues" ]] || finish_with_failures
 notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations)." 1 'unknown' "$max_iterations"
 exit 1

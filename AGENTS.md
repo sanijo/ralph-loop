@@ -8,6 +8,7 @@
 - Keep target-facing template stubs generic. Do not bake this source repo's issue numbers, labels, verification commands, or local paths into `template/AGENTS.md`, `template/README.md`, or `template/docs/agents/` unless they are intentionally reusable defaults.
 - Preserve the installer contract: non-forced installs skip conflicting managed files, repeated installs are idempotent, and new Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/`, and `.ralph/worktrees/`. Existing blocks are currently left intact; upgrades need the worktree ignore added manually until the installer upgrade slice lands.
 - Use POSIX-compatible shell for `scripts/install.sh`. The runner, helpers, and verifier are Bash scripts and are syntax-checked by `scripts/verify.sh`.
+- The runner starts provider sessions under `set -m` so each gets its own process group that the timeout can kill. Asynchronous jobs of a non-interactive shell ignore SIGINT, so tests that interrupt a backgrounded runner must also start it under `set -m`.
 - Do not commit local run state or secrets from `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, or `.ralph/cache/`.
 
 ## Agent skills

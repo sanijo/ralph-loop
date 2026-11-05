@@ -80,6 +80,15 @@ tracker_open_pr_heads() {
   gh pr list --state open --limit 1000 --json headRefName --jq '.[].headRefName'
 }
 
+tracker_comment() {
+  gh issue comment "$1" --body-file "$2" >/dev/null
+}
+
+# Replaces a label: issue number, label to remove, label to add.
+tracker_relabel() {
+  gh issue edit "$1" --remove-label "$2" --add-label "$3" >/dev/null
+}
+
 tracker_close() {
   gh issue comment "$1" --body-file "$2" && gh issue close "$1"
 }

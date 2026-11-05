@@ -8,6 +8,11 @@ RALPH_VARIANT=high
 # Required: exact target-repository verification command, run from its worktree.
 RALPH_VERIFY_COMMAND=
 
+# Seconds a provider session may run before it is stopped as a timeout (0 disables).
+RALPH_ITERATION_TIMEOUT=3600
+# Failures of one issue before its ready label is replaced with needs-info.
+RALPH_MAX_FAILURES=2
+
 # Equivalent CLI flags:
 # .ralph/ralph.sh --model openai/gpt-5.5 --variant high
 # Override these defaults in .ralph/.env or with CLI flags to change model selection.

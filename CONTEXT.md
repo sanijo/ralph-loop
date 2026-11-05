@@ -22,6 +22,10 @@ This repository is the source project, not an installed target project. Root-lev
 - **Workstream branch**: The branch Ralph uses for autonomous implementation work. PRD-backed issue sets use `ralph/<prd-slug>`; standalone ready issues use `ralph/issues`. Each has at most one open runner-managed PR.
 - **Worktree**: An isolated checkout sharing the target repository's Git history. The runner uses `.ralph/worktrees/<slug>` without switching or editing the main checkout.
 - **Verify command**: Required `RALPH_VERIFY_COMMAND`, run by the runner in the worktree before publishing.
+- **Iteration outcome**: How a Ralph iteration ended: `success`, `provider-error`, `timeout`, `no-commit`, `dirty-worktree`, `verify-failed` or `agent-blocked`. Every outcome other than success is a failure.
+- **Iteration timeout**: `RALPH_ITERATION_TIMEOUT` seconds (default 3600) after which the runner stops a provider session's process group and classifies it `timeout`.
+- **Failure comment**: The single issue comment a failed iteration posts, starting with the hidden marker `<!-- ralph-failure: <outcome> -->`. Marked comments are counted; at `RALPH_MAX_FAILURES` (default 2), or immediately for `agent-blocked`, the ready label is replaced with needs-info.
+- **Finished with failures**: Exit code `6`, used when any iteration in the run failed.
 - **Notification helper**: `.ralph/helpers/notify.sh`, the best-effort notification helper. Telegram is the currently documented backend.
 - **Issue**: A tracked unit of work in GitHub Issues for `sanijo/ralph-loop`.
 - **PRD**: A product requirements issue that can define or group implementation issues. An issue with any native sub-issue, or (without native links) named in another ready issue's `## Parent` section, is a PRD and is never selected.
@@ -37,6 +41,7 @@ This repository is the source project, not an installed target project. Root-lev
 - **Configure a target**: Replace installed stubs with target-specific tracker, label, and verification details before unattended runs. Keep secrets in ignored `.ralph/.env`, not in committed template files.
 - **Run Ralph in a target**: Configure `RALPH_VERIFY_COMMAND`, then run `.ralph/ralph.sh`, optionally with `--provider`, `--model`, `--variant`, `--max-iterations`, or `--no-auto-approve`.
 - **Complete an issue**: The agent commits implementation work locally. The runner requires new commits and a clean worktree, runs verification, pushes the workstream branch, and posts one Markdown comment before closing the issue. Issues close on push, before merge.
+- **Handle a failed iteration**: The runner resets the workstream branch to its pre-iteration commit without pushing, posts one marked failure comment, relabels ready to needs-info at the failure limit (immediately for agent-reported blockers), skips the issue for the rest of the run and continues. The run exits `6` (finished with failures).
 - **Workstream PR**: After the first successful issue, the runner opens one draft PR from the workstream branch to the default branch, titled after the PRD, with `Closes #<prd>` and a resolved-issue list. Later successes update its body. It is marked ready for review when the PRD has no open ready issues left. The standalone workstream's PR has no closing reference.
 - **Verify this source repo**: Run `bash scripts/verify.sh` and `git diff --check` before closing implementation work.
 

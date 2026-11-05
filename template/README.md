@@ -61,14 +61,34 @@ on the branch, but a closed issue is not yet on the default branch: review and
 merge the PR to deliver it. If you abandon a workstream, close its PR and reopen
 its issues manually.
 
-No eligible open ready issues means `COMPLETE` without invoking a provider. Exit
-codes: `0` complete, `1` iteration limit, `2` usage, `3` iteration or tracker
-failure, `4` preconditions, `5` blocked.
-Failures currently stop without publishing that iteration; local work remains
-for inspection. Logs are under `.ralph/logs/`.
+No eligible open ready issues means `COMPLETE` without invoking a provider.
+Logs are under `.ralph/logs/`.
 
-This version does not yet recover failed iterations, resume remote-only
-branches, or support runner dry-run/interactive modes.
+## Failures
+
+Each iteration ends as `success` or one failure outcome: `provider-error`,
+`timeout` (provider ran past `RALPH_ITERATION_TIMEOUT` seconds, default 3600,
+`0` disables), `no-commit` (no new commit descending from the pre-iteration
+head), `dirty-worktree`, `verify-failed`, or `agent-blocked` (the agent wrote a
+blocker report).
+
+On failure the runner resets the workstream branch to its pre-iteration commit
+and pushes nothing. It posts one failure comment starting with the hidden
+marker `<!-- ralph-failure: <outcome> -->`, with the reason and, when relevant,
+the blocker report or the last 20 lines of verify output. When the issue's
+marked failure comments reach `RALPH_MAX_FAILURES` (default 2), or at once for
+an agent-reported blocker, the ready label is replaced with the needs-info
+label. Restore the ready label after fixing the issue (delete old failure
+comments to reset the count). The failed issue is skipped for the rest of the
+run and the loop continues with the next eligible issue.
+
+Exit codes: `0` complete, `1` iteration limit, `2` usage, `3` runner failure
+(tracker, push or publishing), `4` preconditions, `5` blocked, `6` finished
+with failures. A rejected push stops with `3` and leaves the worktree for
+inspection.
+
+This version does not yet resume remote-only branches or support runner
+dry-run/interactive modes.
 
 ## Provider configuration
 
@@ -79,7 +99,7 @@ OpenCode is default; config pins `RALPH_MODEL=openai/gpt-5.5` and
 variant to `--model provider/model#variant`. Claude/Codex ignore variant.
 
 Headless adapters use OpenCode `run`, Claude `--print`, and Codex `exec`, all
-inside the worktree. Auto-approval is enabled by default (`--auto`,
+inside the worktree with stdin from `/dev/null`, in their own process group. Auto-approval is enabled by default (`--auto`,
 `--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`,
 respectively). Use `--no-auto-approve` to omit these flags. The agent's no-push/no-tracker
 rule is a prompt contract, not an enforced sandbox. Check your installed CLI and

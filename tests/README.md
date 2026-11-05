@@ -32,6 +32,6 @@ Write a JSON object or list of objects to `$RALPH_TEST_PROVIDER_SCRIPT`. All thr
 | `hang` | Sleep for `seconds` (default 60); caller must enforce a timeout |
 | `blocker` | Write `reason` to `path`, or `$RALPH_BLOCKER_FILE` |
 
-Each step can print `output`. The default script does nothing. A list can model compound behavior, such as commit then dirty. Paths are relative to the provider's working directory unless absolute. The runner exports `RALPH_BLOCKER_FILE` for blocker actions.
+Each step can print `output`. The default script does nothing. To vary behavior across iterations, write `{"sessions": [script, script, ...]}`: the Nth provider invocation in the scenario's event stream runs the Nth script, and later invocations do nothing. A list can model compound behavior, such as commit then dirty. Paths are relative to the provider's working directory unless absolute. The runner exports `RALPH_BLOCKER_FILE` for blocker actions.
 
 Every fake command appends `{tool, argv, cwd}` to `$RALPH_TEST_EVENTS` (JSONL), preserving arguments with spaces and newlines. A bare-origin post-receive hook records `{tool: "git-push", old, new, ref}` after pushes complete. Use this shared stream to assert push-before-comment/close ordering. The initial setup push is not logged. The harness strips inherited Ralph settings, disables global Git configuration and allows only the file transport, preventing accidental real remote access.
