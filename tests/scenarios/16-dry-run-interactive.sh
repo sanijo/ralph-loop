@@ -14,10 +14,12 @@ for interactive in 0 1; do
   cp "$RALPH_TEST_STATE" "$SCENARIO_DIR/state-before.json"
   remote_before="$(git --git-dir="$ORIGIN" show-ref)"
   args=(--dry-run --provider claude --model fixture-model)
-  expected_command='claude --print --model fixture-model --dangerously-skip-permissions <prompt>'
+  # Config pins RALPH_EFFORT=high; turn limit and structured output are headless only.
+  settings="--settings $TARGET/.ralph/claude-settings.json"
+  expected_command="claude --print --model fixture-model --effort high --max-turns 200 --output-format stream-json --verbose $settings --dangerously-skip-permissions <prompt>"
   if [[ "$interactive" -eq 1 ]]; then
     args+=(--interactive)
-    expected_command='claude --model fixture-model --dangerously-skip-permissions <prompt>'
+    expected_command="claude --model fixture-model --effort high $settings --dangerously-skip-permissions <prompt>"
   fi
   run_runner "${args[@]}"
   assert_eq "$RUN_STATUS" 0
@@ -56,7 +58,7 @@ for provider in opencode claude codex; do
   printf '[{"action":"stdin","file":"%s/stdin-%s.txt"},{"action":"commit","file":"issue-%s.txt","message":"feat: implement #%s"}]\n' \
     "$SCENARIO_DIR" "$provider" "$number" "$number" >"$RALPH_TEST_PROVIDER_SCRIPT"
   printf 'human input\n' >"$SCENARIO_DIR/stdin.txt"
-  run_runner --interactive --provider "$provider" --model fixture-model --variant low <"$SCENARIO_DIR/stdin.txt"
+  run_runner --interactive --provider "$provider" --model fixture-model --effort low <"$SCENARIO_DIR/stdin.txt"
   assert_eq "$RUN_STATUS" 0
   if [[ "$provider" == opencode ]]; then
     grep -Fq 'OpenCode interactive sessions ignore the model' "$SCENARIO_DIR/runner.log"
@@ -68,21 +70,24 @@ for provider in opencode claude codex; do
 done
 assert_json "$RALPH_TEST_STATE" '.[0].prs | length == 1'
 
-python3 - "$(worktree_path)" <<'PY'
+python3 - "$(worktree_path)" "$TARGET" <<'PY'
 import json
 import os
 import sys
 from pathlib import Path
 
-worktree = sys.argv[1]
+worktree, target = sys.argv[1:3]
+settings = str(Path(target, '.ralph/claude-settings.json'))
 events = [json.loads(line) for line in Path(os.environ['RALPH_TEST_EVENTS']).read_text().splitlines()]
 sessions = [event for event in events if event['tool'] in ('opencode', 'claude', 'codex')]
 assert [event['tool'] for event in sessions] == ['opencode', 'claude', 'codex'], sessions
 interactive = {
     # The OpenCode TUI takes the prompt via --prompt and has no model flag.
     'opencode': ['--auto', '--prompt'],
-    'claude': ['--model', 'fixture-model', '--dangerously-skip-permissions'],
-    'codex': ['--model', 'fixture-model', '--dangerously-bypass-approvals-and-sandbox'],
+    'claude': ['--model', 'fixture-model', '--effort', 'low', '--settings', settings,
+               '--dangerously-skip-permissions'],
+    'codex': ['--model', 'fixture-model', '-c', 'model_reasoning_effort=low',
+              '--dangerously-bypass-approvals-and-sandbox'],
 }
 for index, event in enumerate(sessions):
     assert event['cwd'] == worktree, event

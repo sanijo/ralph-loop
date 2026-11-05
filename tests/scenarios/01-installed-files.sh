@@ -4,6 +4,7 @@ expected_files=(
   '.ralph/ralph.sh'
   '.ralph/prompt.md'
   '.ralph/config'
+  '.ralph/claude-settings.json'
   '.ralph/.env.example'
   '.ralph/helpers/tracker.sh'
   '.ralph/helpers/notify.sh'

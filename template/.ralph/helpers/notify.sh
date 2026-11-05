@@ -59,7 +59,7 @@ fi
 iteration="${RALPH_ITERATION:-unknown}"
 max_iterations="${RALPH_MAX_ITERATIONS:-unknown}"
 model="${RALPH_MODEL_NAME:-${RALPH_MODEL:-provider default}}"
-variant="${RALPH_VARIANT_NAME:-${RALPH_VARIANT:-provider default}}"
+effort="${RALPH_EFFORT_NAME:-${RALPH_EFFORT:-provider default}}"
 provider="${RALPH_PROVIDER_NAME:-${RALPH_PROVIDER:-unknown}}"
 exit_code="${RALPH_EXIT_CODE:-unknown}"
 provider_status="${RALPH_PROVIDER_STATUS:-unknown}"
@@ -75,7 +75,7 @@ Worktree: $worktree
 Iteration: $iteration/$max_iterations
 Provider: $provider
 Model: $model
-Variant: $variant
+Effort: $effort
 Exit code: $exit_code
 Provider status: $provider_status
 Time: $timestamp"

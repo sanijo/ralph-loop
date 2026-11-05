@@ -9,7 +9,7 @@ bash scripts/install.sh --dry-run /path/to/target-repo
 bash scripts/install.sh /path/to/target-repo
 ```
 
-The target must already be a Git worktree. Installation copies the runner, config, prompt, helpers, provider bridges, instruction stubs, tracker docs and usage notes into the target. New Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`.
+The target must already be a Git worktree. Installation copies the runner, config, Claude settings, prompt, helpers, provider bridges, instruction stubs, tracker docs and usage notes into the target. New Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`.
 
 Repeated installs skip identical files. Conflicting files are skipped unless `--force` is requested; review customized instruction/config files before forcing an update. Installer dry-run prints planned changes and writes nothing. Existing ignore blocks are currently left intact: add `.ralph/worktrees/` manually when upgrading from v1. The installer does not delete obsolete files; `.ralph/progress.md` and `.ralph/helpers/close-issue.sh` are no longer used and can be removed after review.
 
@@ -32,7 +32,7 @@ The runner loads committed `.ralph/config`, overlays ignored `.ralph/.env`, then
 .ralph/ralph.sh --max-iterations 3
 .ralph/ralph.sh --prd 123
 .ralph/ralph.sh --issue 124
-.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant high
+.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --effort high
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
 .ralph/ralph.sh --dry-run
@@ -106,13 +106,27 @@ This is not yet the complete v2 workflow. Remote-only branch resume and locking 
 
 ### Providers and approval
 
-OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. Interactive mode instead runs `opencode --prompt <prompt>`, `claude <prompt>` and `codex <prompt>` in the foreground; the OpenCode TUI has no model flag, so it ignores the model and variant (choose the model in the session). Auto-approval and the extra-argument settings below apply in both modes. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
+OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. Interactive mode instead runs `opencode --prompt <prompt>`, `claude <prompt>` and `codex <prompt>` in the foreground; the OpenCode TUI has no model flag, so it ignores the model and effort (choose the model in the session). Auto-approval and the extra-argument settings below apply in both modes. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
 
-Config currently pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high`. Empty model omits the model flag. OpenCode receives the variant as `--model provider/model#variant`; empty variant leaves the model unchanged. Claude and Codex ignore variant. Choose a model supported by the selected CLI.
+Config currently pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_EFFORT=high`. Empty model omits the model flag. Choose a model supported by the selected CLI.
 
-Auto-approval is enabled by default: OpenCode receives `--auto`, Claude `--dangerously-skip-permissions`, Codex `--dangerously-bypass-approvals-and-sandbox`. `--no-auto-approve` omits these flags. The instruction not to publish is currently a prompt contract, not a sandbox or enforced permission boundary.
+**Reasoning level.** `RALPH_EFFORT` (or `--effort`) is one provider-neutral setting. OpenCode receives it as the model variant, `--model provider/model#effort` (only when a model is set). Claude receives `--effort <level>`. Codex receives `-c model_reasoning_effort=<level>`. Empty effort omits all three. Use a level the selected CLI accepts (Claude: `low`, `medium`, `high`, `xhigh`, `max`). **Renamed from v1:** `RALPH_VARIANT`/`--variant` is gone, with no alias. Rename it to `RALPH_EFFORT` in `.ralph/config` and `.ralph/.env`; `--variant` is now an unknown argument.
 
-Override binaries/extra whitespace-separated arguments with `RALPH_OPENCODE_BIN`, `RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`, `RALPH_CLAUDE_ARGS`, `RALPH_CODEX_BIN`, and `RALPH_CODEX_ARGS`. Adapter flags were checked against Claude Code 2.1.318, OpenCode 2.0.30 and Codex 0.166.0 help. OpenCode receives neither the removed `--dir` nor a separate `--variant` flag. Verify your local CLI/model/approval behavior manually before unattended use; offline tests cannot guarantee provider behavior or target-specific checks.
+Auto-approval is enabled by default: OpenCode receives `--auto`, Claude `--dangerously-skip-permissions`, Codex `--dangerously-bypass-approvals-and-sandbox`. `--no-auto-approve` omits these flags. For OpenCode and Codex the instruction not to publish is a prompt contract, not an enforced permission boundary.
+
+### Claude safety, limits and output
+
+- **Ralph settings file**: every Claude session, interactive included, gets `--settings .ralph/claude-settings.json` (absolute path in the main checkout). It denies `git push` and the `gh issue`/`gh pr` subcommands that change issues or PRs, plus `gh api`. Each rule also has a form with global options before the subcommand, such as `git -C dir push` or `gh -R owner/repo issue comment`. Claude merges these deny rules with the project's settings. The runner never writes `.claude/settings.json`. Claude refuses to start without the file (exit `4`).
+- **Turn limit**: headless sessions get `--max-turns $RALPH_CLAUDE_MAX_TURNS` (default `200`, `0` omits it).
+- **Structured output**: headless sessions run with `--output-format stream-json --verbose`. The iteration log then holds one JSON event per line, followed by runner and verify text. The final `result` event carries turns and cost:
+
+  ```bash
+  jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' .ralph/logs/iteration-1-issue-123.log
+  ```
+
+**Manual check (Claude Code 2.1.318, 2026-11-05).** Real `claude --print --dangerously-skip-permissions --settings .ralph/claude-settings.json` ran in a scratch repo with a local bare origin and a recording `gh` stub. It denied each of these: `git push origin main`, `git status && git push`, `git -C . push origin main`, `git -c color.ui=never push origin main`, `env gh issue close 1`, `gh issue comment`, `gh -R a/b issue comment`, `gh pr create`, `gh pr merge` and `gh -R a/b api ... -X PATCH`. Nothing reached the remote or the stub. `git status`, `git log`, `gh issue list` and `gh issue view` still ran. The project's `.claude/settings.json` was unchanged. The first attempt let `git -C . push` and `gh -R a/b issue comment` through, which is why the global-option rules exist. Deny rules hold under bypass mode, so the adapter keeps `--dangerously-skip-permissions` and needs no allow-list fallback. These rules match command text, not behavior: a script or another interpreter could still push. Re-run this check after upgrading Claude Code.
+
+Override binaries/extra whitespace-separated arguments with `RALPH_OPENCODE_BIN`, `RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`, `RALPH_CLAUDE_ARGS`, `RALPH_CODEX_BIN`, and `RALPH_CODEX_ARGS`. Adapter flags were checked against Claude Code 2.1.318, OpenCode 2.0.30 and Codex 0.166.0 help. Claude's `--max-turns` is not listed in its help but is accepted. OpenCode receives neither the removed `--dir` nor a separate `--variant` flag. Verify your local CLI/model/approval behavior manually before unattended use; offline tests cannot guarantee provider behavior or target-specific checks.
 
 ## Optional Telegram notifications
 
@@ -137,6 +151,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

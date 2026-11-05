@@ -10,7 +10,8 @@ Run Ralph issue-solving iterations in this target repository.
 Options:
   --provider PROVIDER       Provider adapter to use: opencode, claude, codex. Default: opencode.
   --model MODEL             Optional provider model override.
-  --variant VARIANT         Optional provider model variant. OpenCode only.
+  --effort LEVEL            Optional reasoning level: OpenCode model variant,
+                            Claude effort, Codex reasoning effort.
   --max-iterations COUNT    Maximum iterations to run. Default: 1.
   --prd NUMBER              Only select issues whose parent PRD is NUMBER.
   --issue NUMBER            Only select issue NUMBER; explain why if ineligible.
@@ -52,7 +53,7 @@ fi
 
 provider="${RALPH_PROVIDER:-opencode}"
 model="${RALPH_MODEL:-}"
-variant="${RALPH_VARIANT:-}"
+effort="${RALPH_EFFORT:-}"
 max_iterations="${RALPH_MAX_ITERATIONS:-1}"
 auto_approve=1
 dry_run=0
@@ -69,6 +70,8 @@ excluded_labels=(
 )
 needs_info_label="${RALPH_LABEL_NEEDS_INFO:-needs-info}"
 iteration_timeout="${RALPH_ITERATION_TIMEOUT:-3600}"
+claude_max_turns="${RALPH_CLAUDE_MAX_TURNS:-200}"
+CLAUDE_SETTINGS_FILE="$SCRIPT_DIR/claude-settings.json"
 max_failures="${RALPH_MAX_FAILURES:-2}"
 # Hidden marker that identifies Ralph failure comments, followed by the outcome.
 FAILURE_MARKER='<!-- ralph-failure'
@@ -93,13 +96,13 @@ while [[ $# -gt 0 ]]; do
       model="${1#*=}"
       shift
       ;;
-    --variant)
-      [[ $# -ge 2 ]] || { printf 'Error: --variant requires a value\n' >&2; exit 2; }
-      variant="$2"
+    --effort)
+      [[ $# -ge 2 ]] || { printf 'Error: --effort requires a value\n' >&2; exit 2; }
+      effort="$2"
       shift 2
       ;;
-    --variant=*)
-      variant="${1#*=}"
+    --effort=*)
+      effort="${1#*=}"
       shift
       ;;
     --max-iterations)
@@ -164,6 +167,10 @@ if [[ ! "$iteration_timeout" =~ ^[0-9]+$ ]]; then
   printf 'Error: RALPH_ITERATION_TIMEOUT must be a number of seconds (0 disables)\n' >&2
   exit 4
 fi
+if [[ ! "$claude_max_turns" =~ ^[0-9]+$ ]]; then
+  printf 'Error: RALPH_CLAUDE_MAX_TURNS must be a number of turns (0 disables)\n' >&2
+  exit 4
+fi
 if [[ ! "$max_failures" =~ ^[1-9][0-9]*$ ]]; then
   printf 'Error: RALPH_MAX_FAILURES must be a positive integer\n' >&2
   exit 4
@@ -221,7 +228,7 @@ notify_ralph() {
   RALPH_REPO_ROOT="$REPO_ROOT" \
     RALPH_PROVIDER_NAME="$provider" \
     RALPH_MODEL_NAME="${model:-provider default}" \
-    RALPH_VARIANT_NAME="${variant:-provider default}" \
+    RALPH_EFFORT_NAME="${effort:-provider default}" \
     RALPH_MAX_ITERATIONS="$max_iterations" \
     RALPH_ITERATION="$iteration" \
     RALPH_EXIT_CODE="$exit_code" \
@@ -236,11 +243,12 @@ notify_ralph() {
 opencode_command() {
   local opencode_model="$model"
   provider_cmd=("${RALPH_OPENCODE_BIN:-opencode}")
-  # The interactive TUI has no model flag; `run` takes provider/model#variant.
+  # The interactive TUI has no model flag; `run` takes provider/model#variant,
+  # where the variant is the effort level.
   if [[ "$interactive" -eq 0 ]]; then
     provider_cmd+=(run)
     if [[ -n "$model" ]]; then
-      [[ -z "$variant" ]] || opencode_model="${model%%#*}#$variant"
+      [[ -z "$effort" ]] || opencode_model="${model%%#*}#$effort"
       provider_cmd+=(--model "$opencode_model")
     fi
   fi
@@ -255,6 +263,15 @@ claude_command() {
   provider_cmd=("${RALPH_CLAUDE_BIN:-claude}")
   [[ "$interactive" -eq 1 ]] || provider_cmd+=(--print)
   [[ -z "$model" ]] || provider_cmd+=(--model "$model")
+  [[ -z "$effort" ]] || provider_cmd+=(--effort "$effort")
+  # Turn limit and structured output (turns and cost) apply to --print only.
+  if [[ "$interactive" -eq 0 ]]; then
+    [[ "$claude_max_turns" -eq 0 ]] || provider_cmd+=(--max-turns "$claude_max_turns")
+    provider_cmd+=(--output-format stream-json --verbose)
+  fi
+  # Ralph's own settings deny pushing and tracker mutations, even with
+  # auto-approval; the project's .claude/settings.json is left alone.
+  provider_cmd+=(--settings "$CLAUDE_SETTINGS_FILE")
   [[ "$auto_approve" -eq 0 ]] || provider_cmd+=(--dangerously-skip-permissions)
   # shellcheck disable=SC2206
   provider_cmd+=(${RALPH_CLAUDE_ARGS:-})
@@ -265,6 +282,7 @@ codex_command() {
   provider_cmd=("${RALPH_CODEX_BIN:-codex}")
   [[ "$interactive" -eq 1 ]] || provider_cmd+=(exec)
   [[ -z "$model" ]] || provider_cmd+=(--model "$model")
+  [[ -z "$effort" ]] || provider_cmd+=(-c "model_reasoning_effort=$effort")
   [[ "$auto_approve" -eq 0 ]] || provider_cmd+=(--dangerously-bypass-approvals-and-sandbox)
   # shellcheck disable=SC2206
   provider_cmd+=(${RALPH_CODEX_ARGS:-})
@@ -288,6 +306,10 @@ case "$provider" in
       printf 'Error: missing dependency for provider claude: %s\n' "${RALPH_CLAUDE_BIN:-claude}" >&2
       exit 4
     fi
+    if [[ ! -f "$CLAUDE_SETTINGS_FILE" ]]; then
+      printf 'Error: missing Ralph Claude settings file: %s\n' "$CLAUDE_SETTINGS_FILE" >&2
+      exit 4
+    fi
     ;;
   codex)
     if ! command -v "${RALPH_CODEX_BIN:-codex}" >/dev/null 2>&1; then
@@ -306,14 +328,14 @@ mode=unattended
 [[ "$interactive" -eq 0 ]] || mode=interactive
 [[ "$dry_run" -eq 0 ]] || mode="dry-run ($mode)"
 printf 'Starting Ralph: provider=%s mode=%s max_iterations=%s\n' "$provider" "$mode" "$max_iterations"
-if [[ "$interactive" -eq 1 && "$provider" == opencode && -n "$model$variant" ]]; then
+if [[ "$interactive" -eq 1 && "$provider" == opencode && -n "$model$effort" ]]; then
   printf 'Note: OpenCode interactive sessions ignore the model override; choose the model in the session.\n'
 fi
 if [[ -n "$model" ]]; then
   printf 'Model override: %s\n' "$model"
 fi
-if [[ -n "$variant" ]]; then
-  printf 'Variant override: %s\n' "$variant"
+if [[ -n "$effort" ]]; then
+  printf 'Effort override: %s\n' "$effort"
 fi
 
 finish_with_failures() {

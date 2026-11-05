@@ -51,3 +51,8 @@ for step in steps:
         sys.exit(f"Unsupported fake provider action: {action}")
     if "output" in step:
         print(step["output"], flush=True)
+# Claude's headless structured output ends with a result event carrying turns and cost.
+if Path(sys.argv[0]).name == "claude" and "--output-format" in sys.argv:
+    if sys.argv[sys.argv.index("--output-format") + 1] == "stream-json":
+        print(json.dumps({"type": "result", "subtype": "success", "num_turns": 3,
+                          "total_cost_usd": 0.0123}), flush=True)

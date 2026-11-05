@@ -106,18 +106,34 @@ This version does not yet resume remote-only branches.
 
 Configuration precedence: `.ralph/config`, ignored `.ralph/.env`, CLI flags.
 OpenCode is default; config pins `RALPH_MODEL=openai/gpt-5.5` and
-`RALPH_VARIANT=high`. Use `--provider`, `--model`, `--variant`, and
-`--max-iterations` to override. Empty model omits the model flag; OpenCode maps
-variant to `--model provider/model#variant`. Claude/Codex ignore variant.
+`RALPH_EFFORT=high`. Use `--provider`, `--model`, `--effort`, and
+`--max-iterations` to override. Empty model omits the model flag.
+
+`RALPH_EFFORT` is the provider-neutral reasoning level. OpenCode receives it as
+`--model provider/model#effort`, Claude as `--effort`, and Codex as
+`-c model_reasoning_effort=<level>`. Empty effort omits it. It replaces v1's
+`RALPH_VARIANT`/`--variant` outright, with no alias. Rename the setting in
+`.ralph/config` and `.ralph/.env` when upgrading.
 
 Headless adapters use OpenCode `run`, Claude `--print`, and Codex `exec`, all
 inside the worktree with stdin from `/dev/null`, in their own process group. Auto-approval is enabled by default (`--auto`,
 `--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`,
 respectively). Use `--no-auto-approve` to omit these flags. Interactive mode
 runs `opencode --prompt`, `claude` and `codex` with the prompt instead; the
-OpenCode TUI has no model flag, so choose the model in the session. The agent's no-push/no-tracker
-rule is a prompt contract, not an enforced sandbox. Check your installed CLI and
-model manually before unattended use.
+OpenCode TUI has no model flag, so choose the model in the session. For OpenCode
+and Codex the agent's no-push/no-tracker rule is a prompt contract, not an
+enforced sandbox. Check your installed CLI and model manually before unattended
+use.
+
+Claude always gets `--settings .ralph/claude-settings.json`. Its deny rules block
+`git push`, the `gh issue`/`gh pr` subcommands that change issues or PRs, and
+`gh api`, even with auto-approval. Claude merges them with the project's
+settings, and `.claude/settings.json` is never modified. These rules match
+command text, so treat them as a guard rail, not a sandbox. Headless Claude also
+gets `--max-turns $RALPH_CLAUDE_MAX_TURNS` (default `200`, `0` omits it) and
+`--output-format stream-json --verbose`. Read turns and cost from the iteration
+log with
+`jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' <log>`.
 
 Override provider binaries and whitespace-separated extra arguments with
 `RALPH_OPENCODE_BIN`/`RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`/`RALPH_CLAUDE_ARGS`,
