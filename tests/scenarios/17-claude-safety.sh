@@ -42,7 +42,7 @@ assert_eq "$(git status --porcelain)" ''
 
 # Turns and cost can be read from the structured output in the iteration log,
 # even though runner and verify lines are appended to the same file.
-log="$TARGET/.ralph/logs/iteration-1-issue-41.log"
+log="$(find "$TARGET/.ralph/logs" -name iteration-1-issue-41.log)"
 assert_eq "$(jq -R -r 'fromjson? | select(.type == "result") | "\(.num_turns) \(.total_cost_usd)"' "$log")" '3 0.0123'
 
 # The turn limit is configurable; 0 omits it.

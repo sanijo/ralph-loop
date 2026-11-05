@@ -110,13 +110,13 @@ for outcome in provider-error timeout no-commit dirty-worktree verify-failed age
   esac
   if [[ "$outcome" == verify-failed ]]; then
     grep -Fq 'fixture verify failed' <<<"$failure_body"
-    grep -Fq 'fixture verify failed' "$TARGET/.ralph/logs/iteration-1-issue-41.log"
+    grep -Fq 'fixture verify failed' "$TARGET"/.ralph/logs/*/iteration-1-issue-41.log
   fi
   if [[ "$outcome" == timeout ]]; then
     # TERM stopped the hanging provider's process group promptly: well before
     # its 60 seconds and before the runner's 10-second KILL fallback.
     test "$((SECONDS - started))" -lt 10
-    grep -Fq 'iteration timeout' "$TARGET/.ralph/logs/iteration-1-issue-41.log"
+    grep -Fq 'iteration timeout' "$TARGET"/.ralph/logs/*/iteration-1-issue-41.log
   fi
 done
 

@@ -75,7 +75,15 @@ merge the PR to deliver it. If you abandon a workstream, close its PR and reopen
 its issues manually.
 
 No eligible open ready issues means `COMPLETE` without invoking a provider.
-Logs are under `.ralph/logs/`.
+
+## Logs and run summary
+
+Each run gets a timestamped folder, `.ralph/logs/<YYYYMMDD-HHMMSS>/`, with one
+`iteration-<n>-issue-<number>.log` per iteration. Logs are never deleted
+automatically. At the end of every run the runner prints a short summary, also
+saved as `summary.txt` in that folder: the terminal result and exit code,
+resolved, failed and skipped issues, the workstream PR link, and Claude turns
+and cost when Claude reported them.
 
 ## Failures
 
@@ -133,7 +141,8 @@ command text, so treat them as a guard rail, not a sandbox. Headless Claude also
 gets `--max-turns $RALPH_CLAUDE_MAX_TURNS` (default `200`, `0` omits it) and
 `--output-format stream-json --verbose`. Read turns and cost from the iteration
 log with
-`jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' <log>`.
+`jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' <log>`;
+the run summary adds them up.
 
 Override provider binaries and whitespace-separated extra arguments with
 `RALPH_OPENCODE_BIN`/`RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`/`RALPH_CLAUDE_ARGS`,
@@ -146,7 +155,10 @@ set `RALPH_NOTIFY=telegram`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`.
 Send the bot `/start`, then use `.ralph/helpers/telegram-chat-id.sh`.
 Webhook conflicts require an explicit `--delete-webhook`. Test with
 `.ralph/helpers/notify.sh ITERATION_COMPLETE "Notification test"`.
-Notification failures never fail the run.
+Each iteration sends `ITERATION_COMPLETE` or `ITERATION_FAILED` with the issue,
+its outcome and the PR link (`RALPH_NOTIFY_ON_ITERATION=0` turns these off).
+The end of the run sends the terminal result with the run summary.
+Notification failures never fail the run or change its exit code.
 
 Installer updates skip identical/conflicting files unless forced. Review custom
 instructions/config before `--force`. Add `.ralph/worktrees/` to an existing v1

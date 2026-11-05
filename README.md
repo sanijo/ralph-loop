@@ -77,7 +77,30 @@ Each workstream gets one PR from its branch to the default branch:
 
 **Issues close on push, before merge.** Closing at push time keeps issue selection simple: blockers clear as soon as verified work is on the branch, so later issues in the PRD can build on it. The trade-off is that a closed issue does not mean the work is on the default branch. Review and merge the PR to deliver it. If you abandon a workstream, close its PR and reopen its issues manually.
 
-Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider. Provider/verify logs are under `.ralph/logs/`.
+Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider.
+
+### Logs and run summary
+
+Each run gets its own timestamped log folder, `.ralph/logs/<YYYYMMDD-HHMMSS>/` (with a `-2`, `-3`, ... suffix when two runs start in the same second). Each Ralph iteration writes provider and verify output to `iteration-<n>-issue-<number>.log` in that folder. Logs are never deleted automatically; prune old folders yourself. Dry runs create no folder.
+
+At the end of every run, including errors and interrupts, the runner prints a short summary and saves it as `summary.txt` in the run folder:
+
+```text
+Ralph run summary
+Result: FINISHED_WITH_FAILURES (exit 6)
+Resolved (1):
+- #41 Working slice
+Failed (1):
+- #42: no-commit (no new commit)
+Skipped (1):
+- #43: blocked by open #44
+PR: https://github.com/owner/repo/pull/101
+Claude turns: 6
+Claude cost: $0.0246
+Logs: .ralph/logs/20261105-101500
+```
+
+Skipped issues are the ready issues the last selection found ineligible. The PR lines list the workstream PRs this run published to or found for a failed issue. Claude turns and cost are totals of the `result` events of this run's headless Claude sessions; other providers report neither, so the lines are omitted.
 
 ### Iteration outcomes and failures
 
@@ -121,7 +144,7 @@ Auto-approval is enabled by default: OpenCode receives `--auto`, Claude `--dange
 - **Structured output**: headless sessions run with `--output-format stream-json --verbose`. The iteration log then holds one JSON event per line, followed by runner and verify text. The final `result` event carries turns and cost:
 
   ```bash
-  jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' .ralph/logs/iteration-1-issue-123.log
+  jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' .ralph/logs/<run>/iteration-1-issue-123.log
   ```
 
 **Manual check (Claude Code 2.1.318, 2026-11-05).** Real `claude --print --dangerously-skip-permissions --settings .ralph/claude-settings.json` ran in a scratch repo with a local bare origin and a recording `gh` stub. It denied each of these: `git push origin main`, `git status && git push`, `git -C . push origin main`, `git -c color.ui=never push origin main`, `env gh issue close 1`, `gh issue comment`, `gh -R a/b issue comment`, `gh pr create`, `gh pr merge` and `gh -R a/b api ... -X PATCH`. Nothing reached the remote or the stub. `git status`, `git log`, `gh issue list` and `gh issue view` still ran. The project's `.claude/settings.json` was unchanged. The first attempt let `git -C . push` and `gh -R a/b issue comment` through, which is why the global-option rules exist. Deny rules hold under bypass mode, so the adapter keeps `--dangerously-skip-permissions` and needs no allow-list fallback. These rules match command text, not behavior: a script or another interpreter could still push. Re-run this check after upgrading Claude Code.
@@ -142,7 +165,7 @@ Test delivery with:
 RALPH_REPO_ROOT="$PWD" .ralph/helpers/notify.sh ITERATION_COMPLETE "Notification test"
 ```
 
-Notifications are disabled unless configured. They report successful iterations and terminal states; `RALPH_NOTIFY_ON_ITERATION=0` suppresses iteration successes. Missing settings/curl, API errors and unsupported backends warn without failing a run.
+Notifications are disabled unless configured. Each iteration sends a per-issue event, `ITERATION_COMPLETE` or `ITERATION_FAILED`, with `Issue:`, `Outcome:` (`success` or the failure outcome) and `PR:` lines. The end of the run sends its terminal result (`COMPLETE`, `BLOCKED`, `MAX_ITERATIONS`, `FINISHED_WITH_FAILURES`, `ERROR` or `INTERRUPTED`) with the run summary. `RALPH_NOTIFY_ON_ITERATION=0` suppresses the per-issue events. Missing settings/curl, API errors and unsupported backends warn without failing a run or changing its exit code.
 
 ## Verify this source repository
 
@@ -151,6 +174,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

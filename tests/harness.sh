@@ -25,6 +25,7 @@ setup_scenario() {
   cp "$REPO_ROOT"/tests/fakes/*.py "$FAKE_BIN/"
   chmod +x "$FAKE_BIN"/fake-*.py
   ln -s fake-gh.py "$FAKE_BIN/gh"
+  ln -s fake-curl.py "$FAKE_BIN/curl"
   for variable in opencode claude codex; do
     ln -s fake-provider.py "$FAKE_BIN/$variable"
   done

@@ -202,18 +202,35 @@ tracker_init || exit 4
 mkdir -p "$LOG_DIR" "$SCRIPT_DIR/tmp"
 RUN_TMP="$(mktemp -d "$SCRIPT_DIR/tmp/run.XXXXXX")"
 provider_job='' watchdog_job=''
-failed_issues='' failure_summary=''
+failed_issues='' failure_summary='' resolved_summary='' blocked_reasons=''
+# Run log folder (empty until the run starts), workstream PR URLs and Claude usage.
+run_log_dir='' run_ended=0 pr_urls='' usage_totals='null'
 
 # Stops the provider session and its timeout watchdog, each a process group.
-# shellcheck disable=SC2329 # Invoked by the EXIT trap.
+# shellcheck disable=SC2329 # Invoked by the EXIT trap handler.
 stop_jobs() {
   local job
   for job in "$provider_job" "$watchdog_job"; do
     [[ -z "$job" ]] || kill -TERM -- "-$job" 2>/dev/null || true
   done
 }
-trap 'stop_jobs; rm -rf "$RUN_TMP"' EXIT
 
+# An exit that bypassed end_run (an unexpected error or an interrupt) still
+# reports the run once it has started.
+# shellcheck disable=SC2329 # Invoked by the EXIT trap.
+on_exit() {
+  local code=$? result=ERROR
+  stop_jobs
+  if [[ -n "$run_log_dir" && "$run_ended" -eq 0 ]]; then
+    [[ "$code" -ne 130 && "$code" -ne 143 ]] || result=INTERRUPTED
+    report_run "$result" "$code" 'the runner stopped unexpectedly'
+  fi
+  rm -rf "$RUN_TMP"
+}
+trap on_exit EXIT
+
+# Sends a best-effort notification; it can never fail the run. Callers may set
+# RALPH_NOTIFY_ISSUE, RALPH_NOTIFY_OUTCOME and RALPH_NOTIFY_PR for the message.
 notify_ralph() {
   local notify_status="$1"
   local summary="$2"
@@ -234,6 +251,102 @@ notify_ralph() {
     RALPH_EXIT_CODE="$exit_code" \
     RALPH_PROVIDER_STATUS="$provider_status" \
     bash "$NOTIFY_SCRIPT" "$notify_status" "$summary" || true
+}
+
+# Sends the per-issue success or failure event for the current iteration.
+# Uses outcome (empty on success) and issue_pr_url.
+notify_issue_event() {
+  [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == 1 ]] || return 0
+  RALPH_NOTIFY_ISSUE="#$number $(jq -r '.title' <<<"$issue")" \
+    RALPH_NOTIFY_OUTCOME="${outcome:-success}" \
+    RALPH_NOTIFY_PR="${issue_pr_url:-none}" \
+    notify_ralph "$1" "$2" "$3" "$status" "$iteration"
+}
+
+# Adds the Claude result event's turns and cost in the iteration log to the
+# run totals. Sets iteration_usage to a short description, or empty.
+record_usage() {
+  local usage
+  iteration_usage=''
+  [[ "$provider" == claude && -f "$log_file" ]] || return 0
+  usage="$(jq -R -n -c '[inputs | fromjson? | select(type == "object" and .type == "result")]
+    | last // empty | {turns: (.num_turns // 0), cost: (.total_cost_usd // 0)}' "$log_file")" || return 0
+  [[ -n "$usage" ]] || return 0
+  usage_totals="$(jq -c --argjson totals "$usage_totals" \
+    '{turns: (($totals.turns // 0) + .turns), cost: (($totals.cost // 0) + .cost)}' <<<"$usage")"
+  iteration_usage="$(format_usage "$usage")"
+}
+
+# Prints "<turns> turns, $<cost>" for a usage object.
+format_usage() {
+  local turns cost
+  turns="$(jq -r '.turns' <<<"$1")"
+  cost="$(jq -r '.cost' <<<"$1")"
+  LC_ALL=C printf '%s turns, $%.4f' "$turns" "$cost"
+}
+
+# Prints a titled list: "Title: none" or "Title (count):" and the items.
+summary_section() {
+  if [[ -z "$2" ]]; then
+    printf '%s: none\n' "$1"
+  else
+    printf '%s (%s):\n%s\n' "$1" "$(grep -c '' <<<"$2")" "$2"
+  fi
+}
+
+# Prints the end-of-run summary body.
+run_summary() {
+  local result="$1" code="$2" error="$3" skipped url
+  printf 'Result: %s (exit %s)\n' "$result" "$code"
+  [[ -z "$error" ]] || printf 'Error: %s\n' "$error"
+  summary_section Resolved "$resolved_summary"
+  summary_section Failed "$failure_summary"
+  # Ineligible issues from the last selection; failed ones are listed above.
+  skipped="$(grep -v ': failed earlier in this run$' <<<"$blocked_reasons" || true)"
+  summary_section Skipped "$skipped"
+  if [[ -z "$pr_urls" ]]; then
+    printf 'PR: none\n'
+  else
+    while IFS= read -r url; do printf 'PR: %s\n' "$url"; done <<<"$pr_urls"
+  fi
+  if [[ "$usage_totals" != null ]]; then
+    printf 'Claude turns: %s\n' "$(jq -r '.turns' <<<"$usage_totals")"
+    LC_ALL=C printf 'Claude cost: $%.4f\n' "$(jq -r '.cost' <<<"$usage_totals")"
+  fi
+  printf 'Logs: %s\n' "$run_log_dir"
+}
+
+# Prints the summary, saves it in the run log folder and sends the terminal
+# notification: result, exit code and optional error.
+report_run() {
+  local body
+  run_ended=1
+  body="$(run_summary "$@")"
+  printf '\nRalph run summary\n%s\n' "$body" | tee "$run_log_dir/summary.txt" || true
+  notify_ralph "$1" "$body" "$2"
+}
+
+# Ends the run with a terminal result and exit code, and an optional error.
+# Started runs report a summary; dry runs only exit.
+end_run() {
+  [[ -z "$run_log_dir" ]] || report_run "$1" "$2" "${3:-}"
+  exit "$2"
+}
+
+# Creates this run's timestamped log folder, adding a suffix when a run in the
+# same second already took the name. Logs are never deleted automatically.
+create_run_log_dir() {
+  local stamp n candidate
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  candidate="$LOG_DIR/$stamp"
+  for ((n = 2; n <= 100; n++)); do
+    if mkdir "$candidate" 2>/dev/null; then
+      run_log_dir="$candidate"
+      return 0
+    fi
+    candidate="$LOG_DIR/$stamp-$n"
+  done
+  return 1
 }
 
 # Provider adapters set provider_cmd to the command for the current mode; the
@@ -324,6 +437,10 @@ case "$provider" in
 esac
 
 "${provider}_command"
+if [[ "$dry_run" -eq 0 ]] && ! create_run_log_dir; then
+  printf 'Error: could not create a run log folder in %s\n' "$LOG_DIR" >&2
+  exit 4
+fi
 mode=unattended
 [[ "$interactive" -eq 0 ]] || mode=interactive
 [[ "$dry_run" -eq 0 ]] || mode="dry-run ($mode)"
@@ -337,18 +454,17 @@ fi
 if [[ -n "$effort" ]]; then
   printf 'Effort override: %s\n' "$effort"
 fi
+[[ -z "$run_log_dir" ]] || printf 'Run logs: %s\n' "$run_log_dir"
 
 finish_with_failures() {
   printf 'FINISHED_WITH_FAILURES: failed iteration(s):\n%s\n' "$failure_summary"
-  notify_ralph 'FINISHED_WITH_FAILURES' "Failed iteration(s): $failure_summary" 6
-  exit 6
+  end_run FINISHED_WITH_FAILURES 6
 }
 
 complete_run() {
   [[ -z "$failed_issues" ]] || finish_with_failures
   printf 'COMPLETE: %s\n' "${1:-no eligible open $ready_label issues remain.}"
-  notify_ralph 'COMPLETE' 'All ready issues are complete.' 0
-  exit 0
+  end_run COMPLETE 0
 }
 
 blocked_run() {
@@ -357,20 +473,17 @@ blocked_run() {
     finish_with_failures
   fi
   printf 'BLOCKED: no eligible issue:\n%s\n' "$blocked_reasons"
-  notify_ralph 'BLOCKED' "No eligible issue. $blocked_reasons" 5
-  exit 5
+  end_run BLOCKED 5
 }
 
 fail_iteration() {
   printf 'Error: issue #%s: %s. See %s\n' "$number" "$1" "$log_file" >&2
-  notify_ralph 'ERROR' "Issue #$number: $1. See $log_file." 3
-  exit 3
+  end_run ERROR 3 "issue #$number: $1"
 }
 
 fail_selection() {
   printf 'Error: issue selection failed while %s\n' "$1" >&2
-  notify_ralph 'ERROR' "Issue selection failed while $1." 3
-  exit 3
+  end_run ERROR 3 "issue selection failed while $1"
 }
 
 # Prints the workstream slug for a parent PRD number, or "issues" when standalone.
@@ -521,6 +634,12 @@ report_dry_run() {
   exit 0
 }
 
+# Adds issue_pr_url to the run's PR links once.
+remember_pr_url() {
+  [[ -n "$issue_pr_url" ]] && ! grep -qxF "$issue_pr_url" <<<"$pr_urls" || return 0
+  pr_urls+="${pr_urls:+$'\n'}$issue_pr_url"
+}
+
 fail_pr() {
   fail_iteration "pull request update failed while $1"
 }
@@ -576,7 +695,9 @@ publish_pr() {
     tracker_pr_edit_body "$(jq -r '.number' <<<"$pr")" "$body_file" || fail_pr 'updating the PR body'
   fi
   pr_number="$(jq -r '.number' <<<"$pr")"
-  printf 'Workstream PR: %s\n' "$(jq -r '.url' <<<"$pr")"
+  issue_pr_url="$(jq -r '.url' <<<"$pr")"
+  remember_pr_url
+  printf 'Workstream PR: %s\n' "$issue_pr_url"
   if [[ "$(jq -r '.isDraft' <<<"$pr")" == true ]] && ! workstream_has_ready_issues; then
     tracker_pr_ready "$pr_number" || fail_pr 'marking the PR ready for review'
   fi
@@ -665,8 +786,7 @@ record_failure() {
   if ! git -C "$worktree" checkout --quiet --force -B "$branch" "$before" ||
      ! git -C "$worktree" clean -fdq; then
     printf 'Error: could not reset %s to %s in %s\n' "$branch" "$before" "$worktree" >&2
-    notify_ralph 'ERROR' "Issue #$number: could not reset $branch after $outcome." 3 "$status" "$iteration"
-    exit 3
+    end_run ERROR 3 "issue #$number: could not reset $branch after $outcome"
   fi
   previous="$(jq --arg marker "$FAILURE_MARKER" \
     '[.comments[]? | select(.body // "" | contains($marker))] | length' <<<"$issue")"
@@ -699,7 +819,10 @@ record_failure() {
   fi
   failed_issues+=" $number"
   failure_summary+="${failure_summary:+$'\n'}- #$number: $outcome ($reason)"
-  notify_ralph 'ITERATION_FAILED' "Issue #$number: $outcome ($reason)." 6 "$status" "$iteration"
+  # Best effort: link an existing workstream PR from earlier successes.
+  issue_pr_url="$(tracker_workstream_pr "$branch" 2>/dev/null | jq -r '.url // empty' 2>/dev/null)" || issue_pr_url=''
+  remember_pr_url
+  notify_issue_event ITERATION_FAILED "Iteration $iteration: issue #$number failed: $outcome ($reason).${iteration_usage:+ Claude: $iteration_usage.}" 6
 }
 
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
@@ -712,7 +835,9 @@ for ((iteration = 1; iteration <= max_iterations; iteration++)); do
   branch="ralph/$slug"
   worktree="$SCRIPT_DIR/worktrees/$slug"
   export RALPH_BLOCKER_FILE="$RUN_TMP/blocker-$iteration.md"
-  log_file="$LOG_DIR/iteration-$iteration-issue-$number.log"
+  log_file="$run_log_dir/iteration-$iteration-issue-$number.log"
+  issue_pr_url='' iteration_usage='' outcome=''
+
   iteration_prompt="$(<"$PROMPT_FILE")
 
 ## Runner context
@@ -750,6 +875,7 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
   before="$(git -C "$worktree" rev-parse HEAD)"
   timeout_marker="$RUN_TMP/timeout-$iteration"
   run_provider_session
+  record_usage
   if [[ -f "$timeout_marker" ]]; then
     printf 'Ralph: provider stopped after the %ss iteration timeout\n' "$iteration_timeout" | tee -a "$log_file"
   fi
@@ -770,17 +896,14 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
     printf '\nImplementation commit: https://github.com/%s/commit/%s\n' "$TRACKER_REPO" "$after"
   } >"$comment_file"
   tracker_close "$number" "$comment_file" || fail_iteration 'closing the issue failed'
+  resolved_summary+="${resolved_summary:+$'\n'}- #$number $(jq -r '.title' <<<"$issue")"
   publish_pr
-
-  if [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == '1' ]]; then
-    notify_ralph 'ITERATION_COMPLETE' "Iteration $iteration completed successfully." 0 "$status" "$iteration"
-  fi
+  notify_issue_event ITERATION_COMPLETE "Iteration $iteration: issue #$number resolved.${iteration_usage:+ Claude: $iteration_usage.}" 0
   [[ -z "$target_issue" ]] || complete_run "targeted issue #$target_issue is complete."
 done
 
 # Exits COMPLETE, BLOCKED or FINISHED_WITH_FAILURES when no eligible issue remains.
 select_issue
-printf 'MAX_ITERATIONS: finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
+printf 'MAX_ITERATIONS: finished %s iteration(s).\n' "$max_iterations"
 [[ -z "$failed_issues" ]] || finish_with_failures
-notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations)." 1 'unknown' "$max_iterations"
-exit 1
+end_run MAX_ITERATIONS 1

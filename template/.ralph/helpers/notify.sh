@@ -65,8 +65,18 @@ exit_code="${RALPH_EXIT_CODE:-unknown}"
 provider_status="${RALPH_PROVIDER_STATUS:-unknown}"
 timestamp="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
-message="Ralph status: $status
-Summary: ${summary:-none}
+message="Ralph status: $status"
+# Per-issue events name the issue, its outcome and the workstream PR.
+[[ -z "${RALPH_NOTIFY_ISSUE:-}" ]] || message+=$'\n'"Issue: $RALPH_NOTIFY_ISSUE"
+[[ -z "${RALPH_NOTIFY_OUTCOME:-}" ]] || message+=$'\n'"Outcome: $RALPH_NOTIFY_OUTCOME"
+[[ -z "${RALPH_NOTIFY_PR:-}" ]] || message+=$'\n'"PR: $RALPH_NOTIFY_PR"
+# A multi-line summary, such as the end-of-run summary, starts on its own line.
+if [[ "$summary" == *$'\n'* ]]; then
+  message+=$'\n'"Summary:"$'\n'"$summary"
+else
+  message+=$'\n'"Summary: ${summary:-none}"
+fi
+message+="
 Repo: $repo_name
 Path: $repo_root
 Branch: $branch

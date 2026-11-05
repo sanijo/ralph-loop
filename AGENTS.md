@@ -11,6 +11,7 @@
 - The runner starts provider sessions under `set -m` so each gets its own process group that the timeout can kill. Asynchronous jobs of a non-interactive shell ignore SIGINT, so tests that interrupt a backgrounded runner must also start it under `set -m`.
 - Provider adapters (`<provider>_command`) build one command for both headless and `--interactive` forms, and `--dry-run` prints it; keep the three in sync. Interactive sessions run in the foreground on the runner's stdin, so scenarios feed stdin from a file rather than piping into `run_runner` (a pipeline subshell loses `RUN_STATUS`).
 - `template/.ralph/claude-settings.json` deny rules match command text. Each rule needs a global-option form too (`Bash(git * push *)`), because `git -C dir push` slipped past `Bash(git push *)` in the real CLI. Offline fakes cannot check enforcement: after changing the rules, re-run the manual real-CLI check in `README.md` and update its record.
+- Iteration logs live in a per-run folder, `.ralph/logs/<timestamp>/iteration-<n>-issue-<number>.log`. Scenarios find them with a glob or `find`, never a fixed path. Terminal results go through `end_run` so every run prints its summary and notifies once; the EXIT trap covers unexpected exits.
 - Do not commit local run state or secrets from `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, or `.ralph/cache/`.
 
 ## Agent skills

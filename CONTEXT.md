@@ -30,7 +30,9 @@ This repository is the source project, not an installed target project. Root-lev
 - **Iteration timeout**: `RALPH_ITERATION_TIMEOUT` seconds (default 3600) after which the runner stops a provider session's process group and classifies it `timeout`.
 - **Failure comment**: The single issue comment a failed iteration posts, starting with the hidden marker `<!-- ralph-failure: <outcome> -->`. Marked comments are counted; at `RALPH_MAX_FAILURES` (default 2), or immediately for `agent-blocked`, the ready label is replaced with needs-info.
 - **Finished with failures**: Exit code `6`, used when any iteration in the run failed.
-- **Notification helper**: `.ralph/helpers/notify.sh`, the best-effort notification helper. Telegram is the currently documented backend.
+- **Run log folder**: `.ralph/logs/<YYYYMMDD-HHMMSS>/`, one per non-dry run, holding `iteration-<n>-issue-<number>.log` per Ralph iteration and the run summary. Never deleted automatically.
+- **Run summary**: The short report printed at the end of every run, and sent as the terminal notification: terminal result and exit code, resolved, failed and skipped issues, workstream PR links, and Claude turns and cost when reported.
+- **Notification helper**: `.ralph/helpers/notify.sh`, the best-effort notification helper. Telegram is the currently documented backend. The runner sends a per-issue success or failure event (issue, outcome, PR link) and the terminal result; failures to notify never change the exit code.
 - **Issue**: A tracked unit of work in GitHub Issues for `sanijo/ralph-loop`.
 - **PRD**: A product requirements issue that can define or group implementation issues. An issue with any native sub-issue, or (without native links) named in another ready issue's `## Parent` section, is a PRD and is never selected.
 - **Implementation issue**: A concrete, independently grabbable GitHub issue that Ralph may solve when it is eligible.
