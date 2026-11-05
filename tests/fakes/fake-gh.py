@@ -47,11 +47,13 @@ def api_issue(item):
     return {**issue_json(item), "state": item.get("state", "OPEN").lower()}
 
 
-def filtered(items):
+def filtered(items, state_key="state"):
+    """Filter like gh's search-backed lists. Issues may carry a stale listedState."""
     requested_state = option("--state", "open").upper()
     wanted_labels = option("--label", "").split(",")
     return [item for item in items
-            if (requested_state == "ALL" or item.get("state", "OPEN") == requested_state)
+            if (requested_state == "ALL"
+                or item.get(state_key, item.get("state", "OPEN")) == requested_state)
             and all(label in labels(item) for label in wanted_labels if label)
             and (not option("--head") or item.get("headRefName") == option("--head"))
             ][:int(option("--limit", "1000"))]
@@ -65,13 +67,16 @@ def dispatch():
     if args[:2] == ["repo", "view"]:
         return {"nameWithOwner": "fixture/target", "defaultBranchRef": {"name": "main"}}
     if args[:2] == ["issue", "list"]:
-        return [issue_json(item) for item in filtered(state["issues"])]
+        return [issue_json(item) for item in filtered(state["issues"], "listedState")]
     if args[0] == "issue" and args[1] in ("view", "comment", "close", "edit"):
         item = issue(args[2])
         operation = args[1]
         if operation == "comment":
             item.setdefault("comments", []).append({"body": body()})
         elif operation == "close":
+            if state.get("listingLag"):
+                # The search index has not caught up: listings keep the old state.
+                item.setdefault("listedState", item.get("state", "OPEN"))
             item["state"] = "CLOSED"
         elif operation == "edit":
             current = labels(item)

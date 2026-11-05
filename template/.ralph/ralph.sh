@@ -375,8 +375,16 @@ evaluate_candidate() {
 
 # Chooses the next issue. Sets number, parent and slug, or exits COMPLETE/BLOCKED.
 select_issue() {
-  local ready candidates candidate n in_progress first='' first_parent='' pr_heads candidate_slug
+  local ready candidates candidate n in_progress first='' first_parent='' pr_heads candidate_slug open_numbers='' state
   ready="$(tracker_ready_issues "$ready_label")" || fail_selection 'listing ready issues'
+  # The listing is search-backed and can still return recently closed issues.
+  # Confirm each state directly and drop closed issues as if they were never listed.
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    state="$(tracker_issue_state "$n")" || fail_selection "reading the state of #$n"
+    [[ "$state" == CLOSED ]] || open_numbers+="$n,"
+  done < <(jq -r '.[].number' <<<"$ready")
+  ready="$(jq -c --argjson open "[${open_numbers%,}]" '[.[] | select(.number | IN($open[]))]' <<<"$ready")"
   # Text Parent references of ready issues mark PRDs that lack native sub-issue links.
   text_parents=''
   while IFS= read -r candidate; do

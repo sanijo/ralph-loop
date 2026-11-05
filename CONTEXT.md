@@ -26,7 +26,7 @@ This repository is the source project, not an installed target project. Root-lev
 - **Issue**: A tracked unit of work in GitHub Issues for `sanijo/ralph-loop`.
 - **PRD**: A product requirements issue that can define or group implementation issues. An issue with any native sub-issue, or (without native links) named in another ready issue's `## Parent` section, is a PRD and is never selected.
 - **Implementation issue**: A concrete, independently grabbable GitHub issue that Ralph may solve when it is eligible.
-- **Eligible issue**: An open, non-PRD issue with the ready label, none of the excluded labels (`needs-triage`, `needs-info`, `ready-for-human`, `wontfix` by default), and only closed blockers.
+- **Eligible issue**: An open (confirmed by direct lookup, since search-backed listings lag behind closes), non-PRD issue with the ready label, none of the excluded labels (`needs-triage`, `needs-info`, `ready-for-human`, `wontfix` by default), and only closed blockers.
 - **Blocker**: An issue that must close first. Native GitHub "blocked by" dependencies are used when present; otherwise references in the body's `## Blocked by` section.
 - **Triage label**: A tracker label mapped from the canonical roles `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`.
 - **ADR**: An architectural decision record under `docs/adr/`, used when a technical choice should be preserved or revisited explicitly.

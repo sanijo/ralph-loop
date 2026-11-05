@@ -17,8 +17,10 @@ steps = script if isinstance(script, list) else [script]
 for step in steps:
     action = step["action"]
     if action in ("commit", "dirty"):
-        Path(step.get("file", "implementation.txt")).write_text(
-            step.get("content", "implemented\n"))
+        path = Path(step.get("file", "implementation.txt"))
+        # Appending lets one script commit again on later iterations.
+        with path.open("a" if step.get("append") else "w") as handle:
+            handle.write(step.get("content", "implemented\n"))
         if action == "commit":
             subprocess.run(["git", "add", "--", step.get("file", "implementation.txt")],
                            check=True)

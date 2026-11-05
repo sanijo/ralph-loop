@@ -15,7 +15,7 @@ Only test observable behavior: commands, files, exit codes, commits, logs, and t
 
 ## Tracker fixtures
 
-Copy a JSON fixture to `$RALPH_TEST_STATE`; see `fixtures/tracker.json`. It holds `issues` and `prs` arrays. Issues have `number`, `title`, `state` (`OPEN`/`CLOSED`), `labels` (strings), `body`, `comments` (objects with `body`), and optional native `parent` (number) and `blockers` (numbers). Native references resolve against other fixture issues. A body may separately contain text-only Parent and Blocked by sections. The fake does not parse them: that is the runner's job.
+Copy a JSON fixture to `$RALPH_TEST_STATE`; see `fixtures/tracker.json`. It holds `issues` and `prs` arrays. Issues have `number`, `title`, `state` (`OPEN`/`CLOSED`), `labels` (strings), `body`, `comments` (objects with `body`), and optional native `parent` (number) and `blockers` (numbers). Native references resolve against other fixture issues. An issue's optional `listedState` overrides `state` for `issue list` only, modelling GitHub's lagging search index; a top-level `"listingLag": true` makes `issue close` keep the previous listed state. A body may separately contain text-only Parent and Blocked by sections. The fake does not parse them: that is the runner's job.
 
 The fake `gh` supports auth status, repo view, issue list/view/comment/close/edit, PR list/view/create/edit/ready, and REST issue/parent/sub_issues/dependencies/blocked_by/comments queries. `gh api` expects the endpoint as its first argument; `--paginate` is accepted and has no effect. List operations filter by state, label and PR head. `--json` projects fields and `--jq`/`-q` invokes jq. Comments read `--body` or `--body-file` (including `-` for stdin). Mutations persist in the state file so later queries see them. Missing parents and unsupported operations fail; nothing falls through to real GitHub. This is an intentional subset of gh, not a complete emulator; extend it alongside new CLI usage.
 
@@ -26,7 +26,7 @@ Write a JSON object or list of objects to `$RALPH_TEST_PROVIDER_SCRIPT`. All thr
 | Action | Behavior / optional fields |
 | --- | --- |
 | `noop` | No repository changes |
-| `commit` | Write and commit `file`, `content`, `message` |
+| `commit` | Write and commit `file`, `content`, `message`; `append: true` appends so the step can commit again next iteration |
 | `dirty` | Write `file` / `content` without committing |
 | `exit` | Exit with `code` (default 1) |
 | `hang` | Sleep for `seconds` (default 60); caller must enforce a timeout |
