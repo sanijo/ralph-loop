@@ -19,7 +19,7 @@ This repository is the source project, not an installed target project. Root-lev
 - **Provider**: The local agent CLI used by the runner. Supported provider names are `opencode`, `claude`, and `codex`; OpenCode is the default.
 - **Provider bridge**: A small target-facing instruction file that points a provider at the canonical instructions, such as `.opencode/agents/ralph.md` or `CLAUDE.md`.
 - **Agent prompt**: `.ralph/prompt.md`, the canonical Ralph iteration contract installed into targets.
-- **Workstream branch**: The branch Ralph uses for autonomous implementation work. PRD-backed issue sets use `ralph/<prd-slug>`; standalone ready issues use `ralph/issues`.
+- **Workstream branch**: The branch Ralph uses for autonomous implementation work. PRD-backed issue sets use `ralph/<prd-slug>`; standalone ready issues use `ralph/issues`. Each has at most one open runner-managed PR.
 - **Worktree**: An isolated checkout sharing the target repository's Git history. The runner uses `.ralph/worktrees/<slug>` without switching or editing the main checkout.
 - **Verify command**: Required `RALPH_VERIFY_COMMAND`, run by the runner in the worktree before publishing.
 - **Notification helper**: `.ralph/helpers/notify.sh`, the best-effort notification helper. Telegram is the currently documented backend.
@@ -37,6 +37,7 @@ This repository is the source project, not an installed target project. Root-lev
 - **Configure a target**: Replace installed stubs with target-specific tracker, label, and verification details before unattended runs. Keep secrets in ignored `.ralph/.env`, not in committed template files.
 - **Run Ralph in a target**: Configure `RALPH_VERIFY_COMMAND`, then run `.ralph/ralph.sh`, optionally with `--provider`, `--model`, `--variant`, `--max-iterations`, or `--no-auto-approve`.
 - **Complete an issue**: The agent commits implementation work locally. The runner requires new commits and a clean worktree, runs verification, pushes the workstream branch, and posts one Markdown comment before closing the issue. Issues close on push, before merge.
+- **Workstream PR**: After the first successful issue, the runner opens one draft PR from the workstream branch to the default branch, titled after the PRD, with `Closes #<prd>` and a resolved-issue list. Later successes update its body. It is marked ready for review when the PRD has no open ready issues left. The standalone workstream's PR has no closing reference.
 - **Verify this source repo**: Run `bash scripts/verify.sh` and `git diff --check` before closing implementation work.
 
 ## Working Rules

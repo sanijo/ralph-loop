@@ -83,3 +83,21 @@ tracker_open_pr_heads() {
 tracker_close() {
   gh issue comment "$1" --body-file "$2" && gh issue close "$1"
 }
+
+# Prints the open PR for a head branch as {number,body,isDraft,url}, or nothing.
+tracker_workstream_pr() {
+  gh pr list --state open --head "$1" --limit 1 --json number,body,isDraft,url --jq '.[0] // empty'
+}
+
+# Creates a draft PR: head branch, title, body file.
+tracker_pr_create() {
+  gh pr create --draft --base "$DEFAULT_BRANCH" --head "$1" --title "$2" --body-file "$3" >/dev/null
+}
+
+tracker_pr_edit_body() {
+  gh pr edit "$1" --body-file "$2" >/dev/null
+}
+
+tracker_pr_ready() {
+  gh pr ready "$1" >/dev/null
+}

@@ -47,8 +47,19 @@ The main checkout's branch, index and project files stay unchanged.
 The agent implements just the supplied issue and commits locally. The runner
 requires new commits, a clean worktree, no blocker report and successful independent
 verification before pushing. It then posts one Markdown comment with commit
-subjects, commit URL and verify result and closes the issue. Issues close on push,
-before merge; reopen them manually if a workstream is abandoned.
+subjects, commit URL and verify result and closes the issue.
+
+Each workstream gets one PR to the default branch. The first success opens a
+draft PR titled after the PRD (without a leading `PRD:`). Its body has
+`Closes #<prd>`, so merging it closes the PRD, and a `## Resolved issues` list.
+Later successes add to that list instead of opening another PR. Once the PRD has
+no open ready issues left (blocked ones count), the PR is marked ready for
+review. Standalone `ralph/issues` work gets a PR without a closing reference.
+
+Issues close on push, before merge. Blockers clear as soon as verified work is
+on the branch, but a closed issue is not yet on the default branch: review and
+merge the PR to deliver it. If you abandon a workstream, close its PR and reopen
+its issues manually.
 
 No eligible open ready issues means `COMPLETE` without invoking a provider. Exit
 codes: `0` complete, `1` iteration limit, `2` usage, `3` iteration or tracker
@@ -56,8 +67,8 @@ failure, `4` preconditions, `5` blocked.
 Failures currently stop without publishing that iteration; local work remains
 for inspection. Logs are under `.ralph/logs/`.
 
-This version does not yet create PRs, recover failed iterations, resume
-remote-only branches, or support runner dry-run/interactive modes.
+This version does not yet recover failed iterations, resume remote-only
+branches, or support runner dry-run/interactive modes.
 
 ## Provider configuration
 

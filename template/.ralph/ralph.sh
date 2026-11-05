@@ -373,15 +373,16 @@ evaluate_candidate() {
   done <<<"$blockers"
 }
 
-# Chooses the next issue. Sets number, parent and slug, or exits COMPLETE/BLOCKED.
-select_issue() {
-  local ready candidates candidate n in_progress first='' first_parent='' pr_heads candidate_slug open_numbers='' state
-  ready="$(tracker_ready_issues "$ready_label")" || fail_selection 'listing ready issues'
+# Sets ready to the JSON array of open ready issues and text_parents to the
+# PRD numbers their `## Parent` sections name. Calls on_error on tracker failure.
+list_open_ready() {
+  local on_error="$1" candidate n state open_numbers=''
+  ready="$(tracker_ready_issues "$ready_label")" || "$on_error" 'listing ready issues'
   # The listing is search-backed and can still return recently closed issues.
   # Confirm each state directly and drop closed issues as if they were never listed.
   while IFS= read -r n; do
     [[ -n "$n" ]] || continue
-    state="$(tracker_issue_state "$n")" || fail_selection "reading the state of #$n"
+    state="$(tracker_issue_state "$n")" || "$on_error" "reading the state of #$n"
     [[ "$state" == CLOSED ]] || open_numbers+="$n,"
   done < <(jq -r '.[].number' <<<"$ready")
   ready="$(jq -c --argjson open "[${open_numbers%,}]" '[.[] | select(.number | IN($open[]))]' <<<"$ready")"
@@ -390,6 +391,12 @@ select_issue() {
   while IFS= read -r candidate; do
     text_parents+="$(tracker_section_refs "$(jq -r '.body // ""' <<<"$candidate")" parent | sed -n 1p)"$'\n'
   done < <(jq -c '.[]' <<<"$ready")
+}
+
+# Chooses the next issue. Sets number, parent and slug, or exits COMPLETE/BLOCKED.
+select_issue() {
+  local candidates candidate n in_progress first='' first_parent='' pr_heads candidate_slug
+  list_open_ready fail_selection
   blocked_reasons=''
   if [[ -n "$target_issue" ]]; then
     candidates="$(tracker_issue_brief "$target_issue" | jq -c .)" || {
@@ -430,6 +437,67 @@ select_issue() {
   fi
   [[ -n "$blocked_reasons" ]] || complete_run
   blocked_run
+}
+
+fail_pr() {
+  fail_iteration "pull request update failed while $1"
+}
+
+# Succeeds when the current workstream still has an open ready implementation issue.
+workstream_has_ready_issues() {
+  local candidate n candidate_parent sub_issues
+  list_open_ready fail_pr
+  while IFS= read -r candidate; do
+    n="$(jq -r '.number' <<<"$candidate")"
+    candidate_parent="$(tracker_parent "$candidate")" || fail_pr "reading the parent of #$n"
+    [[ "$candidate_parent" == "$parent" ]] || continue
+    # PRDs are not implementation issues (relevant for the standalone workstream).
+    ! grep -qx "$n" <<<"$text_parents" || continue
+    sub_issues="$(tracker_sub_issues "$n")" || fail_pr "reading sub-issues of #$n"
+    [[ -z "$sub_issues" ]] || continue
+    return 0
+  done < <(jq -c '.[]' <<<"$ready")
+  return 1
+}
+
+# Opens the workstream's draft PR on its first success, otherwise adds the issue
+# to the existing PR body. Marks the PR ready when no ready issues remain.
+publish_pr() {
+  local pr pr_number title body_file resolved=''
+  pr="$(tracker_workstream_pr "$branch")" || fail_pr 'looking up the workstream PR'
+  if [[ -n "$pr" ]]; then
+    resolved="$(jq -r '.body // ""' <<<"$pr" | awk '
+      /^##[ \t]/ { in_section = (tolower($0) ~ /^##[ \t]+resolved issues[ \t\r]*$/); next }
+      in_section && /^- #[0-9]+/ { print }')"
+  fi
+  if ! grep -qE "^- #$number( |$)" <<<"$resolved"; then
+    resolved+="${resolved:+$'\n'}- #$number $(jq -r '.title' <<<"$issue")"
+  fi
+  body_file="$RUN_TMP/pr-$number.md"
+  {
+    [[ -z "$parent" ]] || printf 'Closes #%s\n\n' "$parent"
+    # Backticks are Markdown, not shell substitutions.
+    # shellcheck disable=SC2016
+    printf 'Ralph workstream `%s`.\n\n## Resolved issues\n\n%s\n\n' "$branch" "$resolved"
+    printf 'Each issue was closed when its verified commits were pushed, before this PR merges.\n'
+  } >"$body_file"
+  if [[ -z "$pr" ]]; then
+    title='Ralph: standalone issues'
+    if [[ -n "$parent" ]]; then
+      title="$(jq -r '.title | sub("^\\s*prd\\b\\s*:?\\s*"; ""; "i")' "$RUN_TMP/prd-$parent.json")"
+      [[ -n "$title" ]] || title="$(jq -r '.title' "$RUN_TMP/prd-$parent.json")"
+    fi
+    tracker_pr_create "$branch" "$title" "$body_file" || fail_pr 'creating the draft PR'
+    pr="$(tracker_workstream_pr "$branch")" || fail_pr 'looking up the new PR'
+    [[ -n "$pr" ]] || fail_pr 'looking up the new PR'
+  else
+    tracker_pr_edit_body "$(jq -r '.number' <<<"$pr")" "$body_file" || fail_pr 'updating the PR body'
+  fi
+  pr_number="$(jq -r '.number' <<<"$pr")"
+  printf 'Workstream PR: %s\n' "$(jq -r '.url' <<<"$pr")"
+  if [[ "$(jq -r '.isDraft' <<<"$pr")" == true ]] && ! workstream_has_ready_issues; then
+    tracker_pr_ready "$pr_number" || fail_pr 'marking the PR ready for review'
+  fi
 }
 
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
@@ -515,7 +583,8 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
     printf '\nVerification: `%s` passed in the worktree.\n' "$verify_command"
     printf '\nImplementation commit: https://github.com/%s/commit/%s\n' "$TRACKER_REPO" "$after"
   } >"$comment_file"
-  tracker_close "$number" "$comment_file"
+  tracker_close "$number" "$comment_file" || fail_iteration 'closing the issue failed'
+  publish_pr
 
   if [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == '1' ]]; then
     notify_ralph 'ITERATION_COMPLETE' "Iteration $iteration completed successfully." 0 "$status" "$iteration"

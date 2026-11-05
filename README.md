@@ -56,11 +56,22 @@ For a PRD, the runner uses `ralph/<prd-title-slug>` in `.ralph/worktrees/<slug>`
 
 The provider runs in that worktree with the short canonical prompt, issue body/comments, PRD reference, branch, verify command and blocker-report path. The agent implements only that issue, tests and commits locally. It must never push or access the tracker. If requirements are unsafe or incomplete it writes a reason to the blocker report.
 
-The runner requires a successful provider exit, new commits descending from the pre-session head, the expected branch, a clean worktree and no blocker report. It independently runs the verify command. Only then does it push the branch, post one Markdown comment with commit subjects, commit URL and verify result, and close the issue. **Issues close on push, before merge**; abandoned workstreams need their issues reopened manually.
+The runner requires a successful provider exit, new commits descending from the pre-session head, the expected branch, a clean worktree and no blocker report. It independently runs the verify command. Only then does it push the branch, post one Markdown comment with commit subjects, commit URL and verify result, and close the issue.
+
+### Workstream pull requests
+
+Each workstream gets one PR from its branch to the default branch:
+
+- **First success**: after the push and issue close, the runner opens a **draft** PR. The title is the PRD title without a leading `PRD:`. The body starts with `Closes #<prd>`, so merging the PR closes the PRD, and lists the resolved issue under `## Resolved issues`.
+- **Later successes**: the runner adds the issue to the existing open PR's body. It never opens a second PR for the same branch.
+- **Ready for review**: after a success, the runner checks the PRD's open ready implementation issues (blocked ones included). When none remain, it marks the draft PR ready for review.
+- **Standalone workstream**: `ralph/issues` gets a PR titled `Ralph: standalone issues`, without a closing reference.
+
+**Issues close on push, before merge.** Closing at push time keeps issue selection simple: blockers clear as soon as verified work is on the branch, so later issues in the PRD can build on it. The trade-off is that a closed issue does not mean the work is on the default branch. Review and merge the PR to deliver it. If you abandon a workstream, close its PR and reopen its issues manually.
 
 Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider. Current exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` iteration or tracker-query failure, `4` configuration/precondition error, `5` blocked. Any iteration failure currently stops without publishing that iteration; local changes remain for inspection. Provider/verify logs are under `.ralph/logs/`.
 
-This is not yet the complete v2 workflow. PR creation, remote-only branch resume, locking, failure recovery, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
+This is not yet the complete v2 workflow. Remote-only branch resume, locking, failure recovery, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
 
 ### Providers and approval
 
@@ -95,6 +106,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, verification failures, and push-before-close ordering. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, verification failures, push-before-close ordering and workstream PRs. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.
