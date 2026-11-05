@@ -94,7 +94,7 @@ OpenCode is the default provider:
 RALPH_PROVIDER=opencode
 ```
 
-Supported provider names are `opencode`, `claude`, and `codex`. Provider binaries and extra arguments can be overridden in `.ralph/config`, `.ralph/.env`, or the process environment:
+Supported provider names are `opencode`, `claude`, and `codex`. All three support unattended runs: OpenCode uses `run`, Claude uses `--print` with the Ralph prompt, and Codex uses `exec`. Provider output is saved in the iteration log, including the completion and blocked markers used by the runner. Provider binaries and extra arguments can be overridden in `.ralph/config`, `.ralph/.env`, or the process environment:
 
 ```bash
 RALPH_OPENCODE_BIN=opencode
@@ -105,9 +105,11 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-The installed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high` by default. When model or variant are unset, Ralph omits those provider flags and lets the provider choose its defaults. Command-line `--model` and `--variant` override config for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
+The installed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high` by default. Command-line `--model` and `--variant` override config for the current run. OpenCode receives the variant in the model value (`--model provider/model#variant`); without a model, a configured variant is ignored. When variant is unset, the model is passed unchanged; when model is unset, the model flag is omitted. Claude and Codex adapters ignore `RALPH_VARIANT`; select a model supported by your chosen provider.
 
-Auto-approval is enabled by default for unattended runs. OpenCode receives `--dangerously-skip-permissions`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal approval prompts or sandbox behavior.
+Auto-approval is enabled by default for unattended runs. OpenCode receives `--auto`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal permission or sandbox behavior.
+
+Adapter flags were checked against the installed CLI help: Claude Code 2.1.318 (`claude --help`), OpenCode 2.0.30 (`opencode run --help`), and Codex 0.166.0 (`codex exec --help`). OpenCode runs from the target repository root; it does not receive the removed `--dir` or `--variant` flags.
 
 Provider support is limited by the installed local CLI. Ralph checks that the selected provider binary exists before starting, but it cannot guarantee the provider supports every flag, model name, approval mode, or repository verification command. Verify a provider manually in the target environment before relying on unattended runs.
 

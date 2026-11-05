@@ -154,18 +154,18 @@ run_opencode() {
   local prompt="$1"
   local log_file="$2"
   local binary="${RALPH_OPENCODE_BIN:-opencode}"
-  local args=(run --dir "$REPO_ROOT")
+  local args=(run)
+  local opencode_model="$model"
 
   if [[ -n "$model" ]]; then
-    args+=(--model "$model")
-  fi
-
-  if [[ -n "$variant" ]]; then
-    args+=(--variant "$variant")
+    if [[ -n "$variant" ]]; then
+      opencode_model="${model%%#*}#$variant"
+    fi
+    args+=(--model "$opencode_model")
   fi
 
   if [[ "$auto_approve" -eq 1 ]]; then
-    args+=(--dangerously-skip-permissions)
+    args+=(--auto)
   fi
 
   if [[ -n "${RALPH_OPENCODE_ARGS:-}" ]]; then
@@ -173,14 +173,14 @@ run_opencode() {
     args+=(${RALPH_OPENCODE_ARGS})
   fi
 
-  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+  (cd "$REPO_ROOT" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
 run_claude() {
   local prompt="$1"
   local log_file="$2"
   local binary="${RALPH_CLAUDE_BIN:-claude}"
-  local args=()
+  local args=(--print)
 
   if [[ -n "$model" ]]; then
     args+=(--model "$model")

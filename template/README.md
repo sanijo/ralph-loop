@@ -21,9 +21,9 @@ RALPH_CODEX_BIN=codex
 RALPH_CODEX_ARGS=
 ```
 
-Claude and Codex support is best-effort until those CLIs are available in your local environment or CI. Claude uses the installed `CLAUDE.md` bridge, OpenCode uses `.opencode/agents/ralph.md`, and Codex relies on canonical `AGENTS.md` instructions.
+All three providers support unattended runs: Claude uses `--print` with the Ralph prompt, OpenCode uses `run` from the target repository root, and Codex uses `exec`. Provider output is saved in the iteration log so completion and blocked markers are detected. Claude uses the installed `CLAUDE.md` bridge, OpenCode uses `.opencode/agents/ralph.md`, and Codex relies on canonical `AGENTS.md` instructions. Select a model supported by your provider with `--model` or local config.
 
-Auto-approval is enabled by default for unattended runs. For OpenCode, this means the runner passes `--dangerously-skip-permissions`; use `--no-auto-approve` to disable it.
+Auto-approval is enabled by default for unattended runs: OpenCode receives `--auto`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` to keep the provider's normal permission or sandbox behavior.
 
 Useful options:
 
@@ -37,4 +37,4 @@ Useful options:
 
 Dry-run mode is included in the generated agent prompt so the agent knows not to push commits, close issues, or mutate the issue tracker. Each run clears old ignored logs under `.ralph/logs/` and writes new provider output logs there for diagnosis.
 
-Variant support maps to OpenCode's provider-specific `--variant` flag. Claude and Codex adapters ignore `RALPH_VARIANT`.
+For OpenCode, the variant is appended to the model (`--model provider/model#variant`), not passed as a separate provider flag. Without a model, a configured variant is ignored; without a variant, the model is passed unchanged. Claude and Codex adapters ignore `RALPH_VARIANT`.

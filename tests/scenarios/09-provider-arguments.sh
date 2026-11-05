@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+cat >"$TARGET/.ralph/.env" <<'ENV'
+RALPH_OPENCODE_ARGS='--format default'
+RALPH_CLAUDE_ARGS='--verbose'
+RALPH_CODEX_ARGS='--color never'
+ENV
+
+for provider in opencode claude codex; do
+  run_runner --provider "$provider" --model fixture-model --variant low
+  assert_eq "$RUN_STATUS" 0
+  grep -Fq '<promise>COMPLETE</promise>' "$TARGET/.ralph/logs/iteration-1.log"
+
+  run_runner --provider "$provider" --model fixture-model --variant low --no-auto-approve
+  assert_eq "$RUN_STATUS" 0
+  grep -Fq '<promise>COMPLETE</promise>' "$TARGET/.ralph/logs/iteration-1.log"
+done
+
+python3 - "$TARGET" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+target = sys.argv[1]
+events = [json.loads(line) for line in Path(os.environ['RALPH_TEST_EVENTS']).read_text().splitlines()]
+assert len(events) == 6, events
+prompt = (f'Ralph iteration 1 of 1. Repository root: {target}. '
+          f'Progress file: {target}/.ralph/progress.md.\n\n'
+          + Path(target, '.ralph/prompt.md').read_text().rstrip('\n'))
+adapters = [
+    ('opencode', ['run', '--model', 'fixture-model#low'], '--auto', ['--format', 'default']),
+    ('claude', ['--print', '--model', 'fixture-model'], '--dangerously-skip-permissions', ['--verbose']),
+    ('codex', ['exec', '--model', 'fixture-model'], '--dangerously-bypass-approvals-and-sandbox', ['--color', 'never']),
+]
+for index, (provider, headless, approval, extra) in enumerate(adapters):
+    for offset, auto in enumerate((True, False)):
+        event = events[index * 2 + offset]
+        expected = headless + ([approval] if auto else []) + extra + [prompt]
+        assert event['tool'] == provider, event
+        assert event['cwd'] == target, event
+        assert event['argv'] == expected, (event, expected)
+PY
