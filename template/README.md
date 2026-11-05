@@ -13,6 +13,7 @@ Authenticate `gh`; install Bash, Git, jq and your provider CLI before running.
 .ralph/ralph.sh --provider codex --no-auto-approve
 .ralph/ralph.sh --dry-run
 .ralph/ralph.sh --interactive --provider claude
+.ralph/ralph.sh --cleanup
 ```
 
 ## Modes
@@ -51,10 +52,12 @@ Label strings are configurable with `RALPH_LABEL_READY_FOR_AGENT`,
 ## Workflow
 
 The runner fetches the selected issue's body/comments and resolves its PRD from a
-native parent link or `## Parent` section. It fetches `origin`, then creates or
-reuses a `ralph/<prd-title-slug>` branch in `.ralph/worktrees/<slug>`.
-Standalone issues use `ralph/issues`.
-New branches start at the remote default branch, not the current checkout.
+native parent link or `## Parent` section. It fetches `origin`, then reuses or
+creates a `ralph/<prd-title-slug>` branch in `.ralph/worktrees/<slug>`.
+Standalone issues use `ralph/issues`. A branch that exists only on `origin`
+(pushed from another machine, or cleaned up locally) is resumed into a new
+worktree with its commits. Other new branches start at the remote default
+branch, not the current checkout.
 The main checkout's branch, index and project files stay unchanged.
 
 The agent implements just the supplied issue and commits locally. The runner
@@ -108,7 +111,19 @@ Exit codes: `0` complete, `1` iteration limit, `2` usage, `3` runner failure
 with failures. A rejected push stops with `3` and leaves the worktree for
 inspection.
 
-This version does not yet resume remote-only branches.
+## Lock and cleanup
+
+Only one runner may be active per repository. Each non-dry run and `--cleanup`
+holds `.ralph/tmp/ralph.lock` (the runner's PID); a second runner exits `4`
+with `another Ralph runner is active`. A lock whose process is no longer
+running is stale and replaced. Dry runs ignore the lock.
+
+`.ralph/ralph.sh --cleanup` removes worktrees under `.ralph/worktrees/`, and
+their local branches, whose PR is merged or closed; add `--dry-run` to preview.
+It keeps, and explains, worktrees with an open PR or none, uncommitted files, or
+commits that no merged or closed PR contains. It never touches the main checkout
+or remote branches, so a later run for the same PRD resumes from `origin`;
+delete the remote branch to start an abandoned workstream over.
 
 ## Provider configuration
 

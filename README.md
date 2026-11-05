@@ -37,6 +37,8 @@ The runner loads committed `.ralph/config`, overlays ignored `.ralph/.env`, then
 .ralph/ralph.sh --provider codex
 .ralph/ralph.sh --dry-run
 .ralph/ralph.sh --interactive --provider claude
+.ralph/ralph.sh --cleanup --dry-run
+.ralph/ralph.sh --cleanup
 ```
 
 ### Modes
@@ -60,7 +62,7 @@ An issue is **eligible** when it is open, has the ready label, has none of the e
 
 The runner fetches the selected issue and its comments.
 
-For a PRD, the runner uses `ralph/<prd-title-slug>` in `.ralph/worktrees/<slug>`. It fetches `origin` before each iteration, reuses a local workstream branch/worktree, or creates the branch from the remote default branch. The main checkout's branch, index and project files are left unchanged; ignored runner state is written under `.ralph/`.
+For a PRD, the runner uses `ralph/<prd-title-slug>` in `.ralph/worktrees/<slug>`. It fetches `origin` before each iteration, then reuses an existing worktree, adds one for an existing local branch, **resumes** a branch that exists only on `origin` (pushed from another machine, or removed locally by cleanup) into a new worktree with its commits, or creates the branch from the remote default branch. The main checkout's branch, index and project files are left unchanged; ignored runner state is written under `.ralph/`.
 
 The provider runs in that worktree with the short canonical prompt, issue body/comments, PRD reference, branch, verify command and blocker-report path. The agent implements only that issue, tests and commits locally. It must never push or access the tracker. If requirements are unsafe or incomplete it writes a reason to the blocker report.
 
@@ -125,7 +127,17 @@ On any failure the runner:
 
 Exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` runner failure (tracker query, push or publishing), `4` configuration/precondition error, `5` blocked, `6` **finished with failures** (any iteration failed; takes precedence over `0`, `1` and `5`). A rejected push or a tracker error after the push stops the run with `3` and leaves the worktree for inspection.
 
-This is not yet the complete v2 workflow. Remote-only branch resume and locking are deferred. The old prompt-level dry-run has been replaced by the runner's `--dry-run`.
+The old prompt-level dry-run has been replaced by the runner's `--dry-run`.
+
+### Single-runner lock
+
+Only one runner may be active per repository. Each non-dry run, and `--cleanup`, takes the lock file `.ralph/tmp/ralph.lock`, which holds the runner's PID, and removes it when it exits. A second runner exits `4` with `another Ralph runner is active in this repository` and the holder's PID. A lock whose process is no longer running (the runner was killed or the machine rebooted) is stale: the next runner reports it and replaces it. Dry runs neither take nor check the lock.
+
+### Worktree cleanup
+
+`.ralph/ralph.sh --cleanup` removes Ralph worktrees under `.ralph/worktrees/`, and their local branches, whose workstream PR is merged or closed, then exits `0`. `--cleanup --dry-run` only reports what it would remove. It needs neither a verify command nor a provider. It keeps a worktree, and says why, when its branch has an open PR or no PR at all, when it has uncommitted or untracked files, or when its branch has commits that no merged or closed PR's head contains. The main checkout and worktrees outside `.ralph/worktrees/` are never touched, and remote branches are not deleted. A tracker or removal error exits `3`.
+
+Because remote branches are kept, a later run for the same PRD resumes the workstream from `origin`. To start an abandoned workstream over, delete its remote branch too.
 
 ### Providers and approval
 
@@ -174,6 +186,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads, remote-only branch resume, the single-runner lock and worktree cleanup. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

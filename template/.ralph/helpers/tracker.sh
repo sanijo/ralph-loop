@@ -98,6 +98,11 @@ tracker_workstream_pr() {
   gh pr list --state open --head "$1" --limit 1 --json number,body,isDraft,url --jq '.[0] // empty'
 }
 
+# Prints every PR for a head branch, newest first, as [{number,state,headRefOid,url}].
+tracker_branch_prs() {
+  gh pr list --state all --head "$1" --limit 100 --json number,state,headRefOid,url
+}
+
 # Creates a draft PR: head branch, title, body file.
 tracker_pr_create() {
   gh pr create --draft --base "$DEFAULT_BRANCH" --head "$1" --title "$2" --body-file "$3" >/dev/null

@@ -20,10 +20,14 @@ Options:
                             provider command, then exit without changing anything.
   --interactive             Run the provider's interactive session in the worktree,
                             then verify and publish as usual.
+  --cleanup                 Remove Ralph worktrees, and their local branches, whose
+                            PR is merged or closed, then exit. With --dry-run,
+                            only report what would be removed.
   -h, --help                Show this help.
 
 OpenCode is the default provider. Auto-approval is enabled by default for
 unattended runs and maps to each provider's best-effort non-interactive flag.
+Only one runner may be active per repository; dry runs do not take the lock.
 USAGE
 }
 
@@ -33,6 +37,7 @@ CONFIG_FILE="$SCRIPT_DIR/config"
 ENV_FILE="${RALPH_ENV_FILE:-$SCRIPT_DIR/.env}"
 PROMPT_FILE="$SCRIPT_DIR/prompt.md"
 LOG_DIR="$SCRIPT_DIR/logs"
+LOCK_FILE="$SCRIPT_DIR/tmp/ralph.lock"
 NOTIFY_SCRIPT="$SCRIPT_DIR/helpers/notify.sh"
 # shellcheck source=template/.ralph/helpers/tracker.sh
 source "$SCRIPT_DIR/helpers/tracker.sh"
@@ -58,6 +63,7 @@ max_iterations="${RALPH_MAX_ITERATIONS:-1}"
 auto_approve=1
 dry_run=0
 interactive=0
+cleanup=0
 verify_command="${RALPH_VERIFY_COMMAND:-}"
 target_prd=''
 target_issue=''
@@ -139,6 +145,10 @@ while [[ $# -gt 0 ]]; do
       interactive=1
       shift
       ;;
+    --cleanup)
+      cleanup=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -186,7 +196,7 @@ if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 4
 fi
 
-if [[ -z "${verify_command//[[:space:]]/}" ]]; then
+if [[ "$cleanup" -eq 0 && -z "${verify_command//[[:space:]]/}" ]]; then
   printf 'Error: set RALPH_VERIFY_COMMAND in .ralph/config or .ralph/.env\n' >&2
   exit 4
 fi
@@ -205,6 +215,7 @@ provider_job='' watchdog_job=''
 failed_issues='' failure_summary='' resolved_summary='' blocked_reasons=''
 # Run log folder (empty until the run starts), workstream PR URLs and Claude usage.
 run_log_dir='' run_ended=0 pr_urls='' usage_totals='null'
+lock_owned=0
 
 # Stops the provider session and its timeout watchdog, each a process group.
 # shellcheck disable=SC2329 # Invoked by the EXIT trap handler.
@@ -225,9 +236,117 @@ on_exit() {
     [[ "$code" -ne 130 && "$code" -ne 143 ]] || result=INTERRUPTED
     report_run "$result" "$code" 'the runner stopped unexpectedly'
   fi
+  release_lock
   rm -rf "$RUN_TMP"
 }
 trap on_exit EXIT
+
+# Takes the single-runner lock for this repository: a file holding the runner's
+# PID. A lock whose process no longer exists is stale and replaced.
+acquire_lock() {
+  local attempt holder=''
+  for attempt in 1 2 3 4 5; do
+    # noclobber makes creation atomic: only one runner can create the file.
+    if (set -o noclobber; printf '%s\n' "$$" >"$LOCK_FILE") 2>/dev/null; then
+      lock_owned=1
+      return 0
+    fi
+    holder="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+    if [[ -z "$holder" && "$attempt" -eq 1 ]]; then
+      # Another runner may be between creating the file and writing its PID.
+      sleep 1
+      continue
+    fi
+    if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+      printf 'Error: another Ralph runner is active in this repository (pid %s, lock %s)\n' \
+        "$holder" "$LOCK_FILE" >&2
+      exit 4
+    fi
+    printf 'Replacing stale Ralph lock from pid %s, which is no longer running\n' "${holder:-unknown}" >&2
+    rm -f "$LOCK_FILE"
+  done
+  printf 'Error: could not take the Ralph lock %s\n' "$LOCK_FILE" >&2
+  exit 4
+}
+
+# Removes the lock if this runner still holds it.
+# shellcheck disable=SC2329 # Invoked by the EXIT trap handler.
+release_lock() {
+  [[ "$lock_owned" -eq 1 && "$(cat "$LOCK_FILE" 2>/dev/null)" == "$$" ]] || return 0
+  rm -f "$LOCK_FILE"
+}
+
+# Succeeds when a worktree tip is a merged or closed PR's head commit or one of
+# its ancestors, so removing the branch loses no commits. Takes the tip and
+# the tracker_branch_prs JSON.
+tip_in_finished_pr() {
+  local oid
+  while IFS= read -r oid; do
+    [[ -n "$oid" ]] || continue
+    [[ "$oid" != "$1" ]] || return 0
+    git merge-base --is-ancestor "$1" "$oid" 2>/dev/null && return 0
+  done < <(jq -r '.[] | select(.state != "OPEN") | .headRefOid // empty' <<<"$2")
+  return 1
+}
+
+# Removes Ralph worktrees under .ralph/worktrees, and their local branches,
+# whose workstream PR is merged or closed. Keeps worktrees with an open PR, no
+# PR, uncommitted changes or commits their PR never had. The main checkout and
+# worktrees elsewhere are never touched. With --dry-run it only reports.
+cleanup_worktrees() {
+  local dir branch prs tip reason finished removed=0 kept=0 verb=Removed
+  [[ "$dry_run" -eq 0 ]] || verb='Would remove'
+  for dir in "$SCRIPT_DIR"/worktrees/*/; do
+    [[ -d "$dir" ]] || continue
+    dir="$(cd "$dir" && pwd -P)"
+    reason='' branch=''
+    if [[ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" != "$dir" ||
+          "$(git -C "$dir" rev-parse --absolute-git-dir)" == \
+            "$(cd "$dir" && cd "$(git rev-parse --git-common-dir)" && pwd -P)" ]]; then
+      reason='not a linked Git worktree'
+    else
+      branch="$(git -C "$dir" branch --show-current)"
+    fi
+    if [[ -z "$reason" && "$branch" != ralph/* ]]; then
+      reason="not on a ralph/ branch"
+    elif [[ -z "$reason" ]]; then
+      prs="$(tracker_branch_prs "$branch")" || {
+        printf 'Error: could not list pull requests for %s\n' "$branch" >&2
+        exit 3
+      }
+      tip="$(git -C "$dir" rev-parse HEAD)"
+      if jq -e 'any(.[]; .state == "OPEN")' <<<"$prs" >/dev/null; then
+        reason='its PR is open'
+      elif jq -e 'length == 0' <<<"$prs" >/dev/null; then
+        reason='no PR for its branch'
+      elif [[ -n "$(git -C "$dir" status --porcelain --untracked-files=all)" ]]; then
+        reason='uncommitted changes remain'
+      elif ! tip_in_finished_pr "$tip" "$prs"; then
+        reason='it has commits not in its merged or closed PR'
+      fi
+    fi
+    if [[ -n "$reason" ]]; then
+      printf 'Kept %s: %s\n' "$dir" "$reason"
+      kept=$((kept + 1))
+      continue
+    fi
+    finished="$(jq -r 'map(select(.state != "OPEN"))[0] | "\(.state | ascii_downcase) \(.url)"' <<<"$prs")"
+    printf '%s %s and branch %s (PR %s)\n' "$verb" "$dir" "$branch" "$finished"
+    removed=$((removed + 1))
+    [[ "$dry_run" -eq 0 ]] || continue
+    if ! git worktree remove "$dir" || ! git branch -D "$branch" >/dev/null; then
+      printf 'Error: could not remove %s and branch %s\n' "$dir" "$branch" >&2
+      exit 3
+    fi
+  done
+  printf 'Cleanup: %s %s worktree(s), kept %s.\n' "${verb,,}" "$removed" "$kept"
+}
+
+if [[ "$cleanup" -eq 1 ]]; then
+  [[ "$dry_run" -eq 1 ]] || acquire_lock
+  cleanup_worktrees
+  exit 0
+fi
 
 # Sends a best-effort notification; it can never fail the run. Callers may set
 # RALPH_NOTIFY_ISSUE, RALPH_NOTIFY_OUTCOME and RALPH_NOTIFY_PR for the message.
@@ -437,6 +556,7 @@ case "$provider" in
 esac
 
 "${provider}_command"
+[[ "$dry_run" -eq 1 ]] || acquire_lock
 if [[ "$dry_run" -eq 0 ]] && ! create_run_log_dir; then
   printf 'Error: could not create a run log folder in %s\n' "$LOG_DIR" >&2
   exit 4
@@ -624,6 +744,8 @@ report_dry_run() {
     worktree_state='exists and would be reused'
   elif git show-ref --verify --quiet "refs/heads/$branch"; then
     worktree_state="would be created from local branch $branch"
+  elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    worktree_state="would be resumed from origin/$branch as of the last fetch"
   fi
   printf 'DRY RUN: nothing was started or changed.\n'
   printf 'Issue: #%s %s\n' "$number" "$(jq -r '.title' <<<"$issue")"
@@ -865,6 +987,10 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
     }
   elif git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$worktree" "$branch"
+  elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    # Pushed from another machine, or the local copy was cleaned up: continue it.
+    printf 'Resuming %s from origin\n' "$branch"
+    git worktree add -b "$branch" "$worktree" "refs/remotes/origin/$branch"
   else
     git worktree add -b "$branch" "$worktree" "refs/remotes/origin/$DEFAULT_BRANCH"
   fi
