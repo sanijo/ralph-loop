@@ -1,0 +1,14 @@
+{
+  "issues": [
+    {"number": 40, "title": "PRD: Fixture workstream", "state": "OPEN", "labels": []},
+    {"number": 41, "title": "Fixture implementation", "state": "OPEN",
+     "labels": ["ready-for-agent"], "parent": 40, "blockers": [42],
+     "body": "## Parent\n\n#40\n\n## Blocked by\n\n- #42\n",
+     "comments": [{"body": "Fixture acceptance detail"}]},
+    {"number": 42, "title": "Fixture prerequisite", "state": "CLOSED", "labels": []},
+    {"number": 43, "title": "Fixture text-only links", "state": "OPEN",
+     "labels": ["ready-for-agent", "needs-info"],
+     "body": "## Parent\n\n#40\n\n## Blocked by\n\n- #41\n"}
+  ],
+  "prs": []
+}

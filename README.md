@@ -179,9 +179,9 @@ This source repository verifies the reusable template with:
 bash scripts/verify.sh
 ```
 
-The verification script syntax-checks shell files, installs the template into a temporary Git repository, confirms expected files are present, confirms ignored local paths are ignored, and checks that repeated installs are idempotent.
+Verification requires Bash, Git, Python 3 (3.9+), jq, and shellcheck on `PATH`. The verification script syntax-checks and shellchecks all shell files, then runs isolated scenarios that install the template into temporary Git repositories with local bare origins. Scenarios check installed files, ignored paths, runner arguments and outcomes, conflicting files, and idempotency. Offline, stateful fake `gh` and provider CLIs support future runner scenarios without credentials or real agent sessions. See [`tests/README.md`](tests/README.md) to add scenarios.
 
-The GitHub Actions workflow `.github/workflows/verify.yml` runs `bash scripts/verify.sh` on pushes and pull requests.
+The GitHub Actions workflow `.github/workflows/verify.yml` installs shellcheck and jq and runs `bash scripts/verify.sh` on pushes and pull requests.
 
 ## Current Status
 

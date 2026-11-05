@@ -52,8 +52,8 @@ if [ -z "$target" ]; then
   exit 2
 fi
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 template_dir=$repo_root/template
 
 if ! git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
