@@ -11,7 +11,20 @@ Authenticate `gh`; install Bash, Git, jq and your provider CLI before running.
 .ralph/ralph.sh --issue 124
 .ralph/ralph.sh --provider claude --model your-model
 .ralph/ralph.sh --provider codex --no-auto-approve
+.ralph/ralph.sh --dry-run
+.ralph/ralph.sh --interactive --provider claude
 ```
+
+## Modes
+
+By default the provider runs headlessly and unattended. `--dry-run` selects an
+issue, prints it with its workstream, worktree path, full provider command and
+prompt, and exits `0`; it does not fetch, create a worktree, start a provider,
+push, change the tracker or notify. `--interactive` prepares the worktree as
+usual, then opens the provider's interactive session there with the same prompt
+and context. When you exit it, the runner evaluates, verifies, publishes and
+handles failures exactly as for an unattended run; the iteration timeout does
+not apply and session output is not logged.
 
 ## Issue selection
 
@@ -87,8 +100,7 @@ Exit codes: `0` complete, `1` iteration limit, `2` usage, `3` runner failure
 with failures. A rejected push stops with `3` and leaves the worktree for
 inspection.
 
-This version does not yet resume remote-only branches or support runner
-dry-run/interactive modes.
+This version does not yet resume remote-only branches.
 
 ## Provider configuration
 
@@ -101,7 +113,9 @@ variant to `--model provider/model#variant`. Claude/Codex ignore variant.
 Headless adapters use OpenCode `run`, Claude `--print`, and Codex `exec`, all
 inside the worktree with stdin from `/dev/null`, in their own process group. Auto-approval is enabled by default (`--auto`,
 `--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`,
-respectively). Use `--no-auto-approve` to omit these flags. The agent's no-push/no-tracker
+respectively). Use `--no-auto-approve` to omit these flags. Interactive mode
+runs `opencode --prompt`, `claude` and `codex` with the prompt instead; the
+OpenCode TUI has no model flag, so choose the model in the session. The agent's no-push/no-tracker
 rule is a prompt contract, not an enforced sandbox. Check your installed CLI and
 model manually before unattended use.
 

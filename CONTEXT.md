@@ -23,6 +23,8 @@ This repository is the source project, not an installed target project. Root-lev
 - **Worktree**: An isolated checkout sharing the target repository's Git history. The runner uses `.ralph/worktrees/<slug>` without switching or editing the main checkout.
 - **Verify command**: Required `RALPH_VERIFY_COMMAND`, run by the runner in the worktree before publishing.
 - **Iteration outcome**: How a Ralph iteration ended: `success`, `provider-error`, `timeout`, `no-commit`, `dirty-worktree`, `verify-failed` or `agent-blocked`. Every outcome other than success is a failure.
+- **Dry run**: Runner `--dry-run`: selects an issue and reports its workstream, worktree path and full provider command, then exits without starting a provider or changing git or tracker state.
+- **Interactive mode**: Runner `--interactive`: prepares the worktree as usual, runs the provider's interactive session for a human, then evaluates, verifies and publishes like an unattended run. The iteration timeout does not apply.
 - **Iteration timeout**: `RALPH_ITERATION_TIMEOUT` seconds (default 3600) after which the runner stops a provider session's process group and classifies it `timeout`.
 - **Failure comment**: The single issue comment a failed iteration posts, starting with the hidden marker `<!-- ralph-failure: <outcome> -->`. Marked comments are counted; at `RALPH_MAX_FAILURES` (default 2), or immediately for `agent-blocked`, the ready label is replaced with needs-info.
 - **Finished with failures**: Exit code `6`, used when any iteration in the run failed.

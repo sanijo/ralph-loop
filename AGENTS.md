@@ -9,6 +9,7 @@
 - Preserve the installer contract: non-forced installs skip conflicting managed files, repeated installs are idempotent, and new Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/`, and `.ralph/worktrees/`. Existing blocks are currently left intact; upgrades need the worktree ignore added manually until the installer upgrade slice lands.
 - Use POSIX-compatible shell for `scripts/install.sh`. The runner, helpers, and verifier are Bash scripts and are syntax-checked by `scripts/verify.sh`.
 - The runner starts provider sessions under `set -m` so each gets its own process group that the timeout can kill. Asynchronous jobs of a non-interactive shell ignore SIGINT, so tests that interrupt a backgrounded runner must also start it under `set -m`.
+- Provider adapters (`<provider>_command`) build one command for both headless and `--interactive` forms, and `--dry-run` prints it; keep the three in sync. Interactive sessions run in the foreground on the runner's stdin, so scenarios feed stdin from a file rather than piping into `run_runner` (a pipeline subshell loses `RUN_STATUS`).
 - Do not commit local run state or secrets from `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, or `.ralph/cache/`.
 
 ## Agent skills

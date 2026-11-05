@@ -15,6 +15,10 @@ Options:
   --prd NUMBER              Only select issues whose parent PRD is NUMBER.
   --issue NUMBER            Only select issue NUMBER; explain why if ineligible.
   --no-auto-approve         Disable provider auto-approval flags.
+  --dry-run                 Report the selected issue, workstream, worktree and
+                            provider command, then exit without changing anything.
+  --interactive             Run the provider's interactive session in the worktree,
+                            then verify and publish as usual.
   -h, --help                Show this help.
 
 OpenCode is the default provider. Auto-approval is enabled by default for
@@ -51,6 +55,8 @@ model="${RALPH_MODEL:-}"
 variant="${RALPH_VARIANT:-}"
 max_iterations="${RALPH_MAX_ITERATIONS:-1}"
 auto_approve=1
+dry_run=0
+interactive=0
 verify_command="${RALPH_VERIFY_COMMAND:-}"
 target_prd=''
 target_issue=''
@@ -120,6 +126,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-auto-approve)
       auto_approve=0
+      shift
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --interactive)
+      interactive=1
       shift
       ;;
     -h|--help)
@@ -200,7 +214,7 @@ notify_ralph() {
   local provider_status="${4:-unknown}"
   local iteration="${5:-unknown}"
 
-  if [[ ! -f "$NOTIFY_SCRIPT" ]]; then
+  if [[ "$dry_run" -eq 1 || ! -f "$NOTIFY_SCRIPT" ]]; then
     return 0
   fi
 
@@ -215,77 +229,51 @@ notify_ralph() {
     bash "$NOTIFY_SCRIPT" "$notify_status" "$summary" || true
 }
 
-# shellcheck disable=SC2329 # Invoked as run_$provider.
-run_opencode() {
-  local prompt="$1"
-  local log_file="$2"
-  local binary="${RALPH_OPENCODE_BIN:-opencode}"
-  local args=(run)
+# Provider adapters set provider_cmd to the command for the current mode; the
+# runner appends the prompt. Headless forms run unattended, interactive forms
+# open the provider's session for a human on the terminal.
+# shellcheck disable=SC2329 # Invoked as ${provider}_command.
+opencode_command() {
   local opencode_model="$model"
-
-  if [[ -n "$model" ]]; then
-    if [[ -n "$variant" ]]; then
-      opencode_model="${model%%#*}#$variant"
+  provider_cmd=("${RALPH_OPENCODE_BIN:-opencode}")
+  # The interactive TUI has no model flag; `run` takes provider/model#variant.
+  if [[ "$interactive" -eq 0 ]]; then
+    provider_cmd+=(run)
+    if [[ -n "$model" ]]; then
+      [[ -z "$variant" ]] || opencode_model="${model%%#*}#$variant"
+      provider_cmd+=(--model "$opencode_model")
     fi
-    args+=(--model "$opencode_model")
   fi
-
-  if [[ "$auto_approve" -eq 1 ]]; then
-    args+=(--auto)
-  fi
-
-  if [[ -n "${RALPH_OPENCODE_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    args+=(${RALPH_OPENCODE_ARGS})
-  fi
-
-  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
+  [[ "$auto_approve" -eq 0 ]] || provider_cmd+=(--auto)
+  # shellcheck disable=SC2206
+  provider_cmd+=(${RALPH_OPENCODE_ARGS:-})
+  [[ "$interactive" -eq 0 ]] || provider_cmd+=(--prompt)
 }
 
-# shellcheck disable=SC2329 # Invoked as run_$provider.
-run_claude() {
-  local prompt="$1"
-  local log_file="$2"
-  local binary="${RALPH_CLAUDE_BIN:-claude}"
-  local args=(--print)
-
-  if [[ -n "$model" ]]; then
-    args+=(--model "$model")
-  fi
-
-  if [[ "$auto_approve" -eq 1 ]]; then
-    args+=(--dangerously-skip-permissions)
-  fi
-
-  if [[ -n "${RALPH_CLAUDE_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    args+=(${RALPH_CLAUDE_ARGS})
-  fi
-
-  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
+# shellcheck disable=SC2329 # Invoked as ${provider}_command.
+claude_command() {
+  provider_cmd=("${RALPH_CLAUDE_BIN:-claude}")
+  [[ "$interactive" -eq 1 ]] || provider_cmd+=(--print)
+  [[ -z "$model" ]] || provider_cmd+=(--model "$model")
+  [[ "$auto_approve" -eq 0 ]] || provider_cmd+=(--dangerously-skip-permissions)
+  # shellcheck disable=SC2206
+  provider_cmd+=(${RALPH_CLAUDE_ARGS:-})
 }
 
-# shellcheck disable=SC2329 # Invoked as run_$provider.
-run_codex() {
-  local prompt="$1"
-  local log_file="$2"
-  local binary="${RALPH_CODEX_BIN:-codex}"
-  local args=(exec)
+# shellcheck disable=SC2329 # Invoked as ${provider}_command.
+codex_command() {
+  provider_cmd=("${RALPH_CODEX_BIN:-codex}")
+  [[ "$interactive" -eq 1 ]] || provider_cmd+=(exec)
+  [[ -z "$model" ]] || provider_cmd+=(--model "$model")
+  [[ "$auto_approve" -eq 0 ]] || provider_cmd+=(--dangerously-bypass-approvals-and-sandbox)
+  # shellcheck disable=SC2206
+  provider_cmd+=(${RALPH_CODEX_ARGS:-})
+}
 
-  if [[ -n "$model" ]]; then
-    args+=(--model "$model")
-  fi
-
-  if [[ "$auto_approve" -eq 1 ]]; then
-    args+=(--dangerously-bypass-approvals-and-sandbox)
-  fi
-
-  if [[ -n "${RALPH_CODEX_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    args+=(${RALPH_CODEX_ARGS})
-  fi
-
-  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
+# Runs the headless provider command with the prompt, capturing its output.
+# shellcheck disable=SC2329 # Invoked in the background by run_provider_session.
+run_headless() {
+  (cd "$worktree" && "${provider_cmd[@]}" "$1") 2>&1 | tee "$2"
 }
 
 case "$provider" in
@@ -313,7 +301,14 @@ case "$provider" in
     ;;
 esac
 
-printf 'Starting Ralph: provider=%s max_iterations=%s\n' "$provider" "$max_iterations"
+"${provider}_command"
+mode=unattended
+[[ "$interactive" -eq 0 ]] || mode=interactive
+[[ "$dry_run" -eq 0 ]] || mode="dry-run ($mode)"
+printf 'Starting Ralph: provider=%s mode=%s max_iterations=%s\n' "$provider" "$mode" "$max_iterations"
+if [[ "$interactive" -eq 1 && "$provider" == opencode && -n "$model$variant" ]]; then
+  printf 'Note: OpenCode interactive sessions ignore the model override; choose the model in the session.\n'
+fi
 if [[ -n "$model" ]]; then
   printf 'Model override: %s\n' "$model"
 fi
@@ -483,6 +478,27 @@ select_issue() {
   blocked_run
 }
 
+# Reports what the selected iteration would do and exits without starting a
+# provider or changing git or tracker state.
+report_dry_run() {
+  local worktree_state="would be created on new branch $branch from origin/$DEFAULT_BRANCH"
+  local workstream=standalone command
+  [[ -z "$parent" ]] || workstream="PRD $prd"
+  printf -v command '%q ' "${provider_cmd[@]}"
+  if [[ -e "$worktree" ]]; then
+    worktree_state='exists and would be reused'
+  elif git show-ref --verify --quiet "refs/heads/$branch"; then
+    worktree_state="would be created from local branch $branch"
+  fi
+  printf 'DRY RUN: nothing was started or changed.\n'
+  printf 'Issue: #%s %s\n' "$number" "$(jq -r '.title' <<<"$issue")"
+  printf 'Workstream: %s (%s)\n' "$branch" "$workstream"
+  printf 'Worktree: %s (%s)\n' "$worktree" "$worktree_state"
+  printf 'Provider command (in worktree): %s<prompt>\n' "$command"
+  printf 'Prompt:\n%s\n' "$iteration_prompt"
+  exit 0
+}
+
 fail_pr() {
   fail_iteration "pull request update failed while $1"
 }
@@ -546,10 +562,18 @@ publish_pr() {
 
 # Runs the provider in its own process group so the iteration timeout can stop
 # the whole process tree. Sets status; creates $timeout_marker on timeout.
+# An interactive session runs in the foreground on the terminal instead: the
+# human ends it, so neither its output capture nor the timeout applies.
 run_provider_session() {
   rm -f "$timeout_marker"
+  status=0
+  if [[ "$interactive" -eq 1 ]]; then
+    printf 'Interactive %s session; output was not captured.\n' "$provider" >"$log_file"
+    (cd "$worktree" && "${provider_cmd[@]}" "$iteration_prompt") || status=$?
+    return
+  fi
   set -m
-  "run_$provider" "$iteration_prompt" "$log_file" </dev/null &
+  run_headless "$iteration_prompt" "$log_file" </dev/null &
   provider_job=$!
   if [[ "$iteration_timeout" -gt 0 ]]; then
     (
@@ -562,7 +586,6 @@ run_provider_session() {
     watchdog_job=$!
   fi
   set +m
-  status=0
   wait "$provider_job" || status=$?
   provider_job=''
   if [[ -n "$watchdog_job" ]]; then
@@ -666,22 +689,6 @@ for ((iteration = 1; iteration <= max_iterations; iteration++)); do
   fi
   branch="ralph/$slug"
   worktree="$SCRIPT_DIR/worktrees/$slug"
-  git fetch origin
-  if [[ -e "$worktree" ]]; then
-    [[ "$(git -C "$worktree" rev-parse --show-toplevel)" == "$worktree" &&
-       "$(git -C "$worktree" branch --show-current)" == "$branch" ]] || {
-      printf 'Error: unexpected worktree at %s\n' "$worktree" >&2; exit 4;
-    }
-  elif git show-ref --verify --quiet "refs/heads/$branch"; then
-    git worktree add "$worktree" "$branch"
-  else
-    git worktree add -b "$branch" "$worktree" "refs/remotes/origin/$DEFAULT_BRANCH"
-  fi
-  if [[ -n "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]]; then
-    printf 'Error: existing worktree is dirty: %s\n' "$worktree" >&2
-    exit 4
-  fi
-  before="$(git -C "$worktree" rev-parse HEAD)"
   export RALPH_BLOCKER_FILE="$RUN_TMP/blocker-$iteration.md"
   log_file="$LOG_DIR/iteration-$iteration-issue-$number.log"
   iteration_prompt="$(<"$PROMPT_FILE")
@@ -700,6 +707,25 @@ $(jq -r '.body // ""' <<<"$issue")
 ### Issue comments
 $(jq -r '.comments[]? | .body' <<<"$issue")"
 
+  if [[ "$dry_run" -eq 1 ]]; then
+    report_dry_run
+  fi
+  git fetch origin
+  if [[ -e "$worktree" ]]; then
+    [[ "$(git -C "$worktree" rev-parse --show-toplevel)" == "$worktree" &&
+       "$(git -C "$worktree" branch --show-current)" == "$branch" ]] || {
+      printf 'Error: unexpected worktree at %s\n' "$worktree" >&2; exit 4;
+    }
+  elif git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$worktree" "$branch"
+  else
+    git worktree add -b "$branch" "$worktree" "refs/remotes/origin/$DEFAULT_BRANCH"
+  fi
+  if [[ -n "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]]; then
+    printf 'Error: existing worktree is dirty: %s\n' "$worktree" >&2
+    exit 4
+  fi
+  before="$(git -C "$worktree" rev-parse HEAD)"
   timeout_marker="$RUN_TMP/timeout-$iteration"
   run_provider_session
   if [[ -f "$timeout_marker" ]]; then

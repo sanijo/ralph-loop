@@ -31,6 +31,7 @@ Write a JSON object or list of objects to `$RALPH_TEST_PROVIDER_SCRIPT`. All thr
 | `exit` | Exit with `code` (default 1) |
 | `hang` | Sleep for `seconds` (default 60); caller must enforce a timeout |
 | `blocker` | Write `reason` to `path`, or `$RALPH_BLOCKER_FILE` |
+| `stdin` | Copy the provider's stdin to `file` (headless sessions read `/dev/null`) |
 
 Each step can print `output`. The default script does nothing. To vary behavior across iterations, write `{"sessions": [script, script, ...]}`: the Nth provider invocation in the scenario's event stream runs the Nth script, and later invocations do nothing. A list can model compound behavior, such as commit then dirty. Paths are relative to the provider's working directory unless absolute. The runner exports `RALPH_BLOCKER_FILE` for blocker actions.
 

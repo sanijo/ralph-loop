@@ -35,7 +35,15 @@ The runner loads committed `.ralph/config`, overlays ignored `.ralph/.env`, then
 .ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant high
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
+.ralph/ralph.sh --dry-run
+.ralph/ralph.sh --interactive --provider claude
 ```
+
+### Modes
+
+- **Default (unattended)**: the provider runs headlessly in the workstream worktree; the runner evaluates, verifies and publishes each iteration.
+- **Dry run** (`--dry-run`): the runner selects an issue and prints it, its workstream, the worktree path (and whether it would be created or reused), the full provider command and its prompt, then exits `0`. It does not fetch, create a worktree or branch, start a provider, push, change the tracker or send notifications. Only the first iteration is reported. With nothing eligible it still exits `COMPLETE` or `BLOCKED`.
+- **Interactive** (`--interactive`): the runner prepares the worktree exactly as for an unattended run, then starts the provider's interactive session there with the same prompt and context, attached to your terminal. When you exit the session, the runner applies the normal outcome evaluation, verification, publishing and failure handling. The iteration timeout does not apply and session output is not captured in the log. Combine with `--dry-run` to preview the interactive command.
 
 ### Issue selection
 
@@ -94,11 +102,11 @@ On any failure the runner:
 
 Exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` runner failure (tracker query, push or publishing), `4` configuration/precondition error, `5` blocked, `6` **finished with failures** (any iteration failed; takes precedence over `0`, `1` and `5`). A rejected push or a tracker error after the push stops the run with `3` and leaves the worktree for inspection.
 
-This is not yet the complete v2 workflow. Remote-only branch resume, locking, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
+This is not yet the complete v2 workflow. Remote-only branch resume and locking are deferred. The old prompt-level dry-run has been replaced by the runner's `--dry-run`.
 
 ### Providers and approval
 
-OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
+OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. Interactive mode instead runs `opencode --prompt <prompt>`, `claude <prompt>` and `codex <prompt>` in the foreground; the OpenCode TUI has no model flag, so it ignores the model and variant (choose the model in the session). Auto-approval and the extra-argument settings below apply in both modes. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
 
 Config currently pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high`. Empty model omits the model flag. OpenCode receives the variant as `--model provider/model#variant`; empty variant leaves the model unchanged. Claude and Codex ignore variant. Choose a model supported by the selected CLI.
 

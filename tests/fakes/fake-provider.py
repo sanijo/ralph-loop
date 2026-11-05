@@ -39,6 +39,9 @@ for step in steps:
         # Prefer an explicit fixture path; later runner scenarios can use its env path.
         path = step.get("path") or os.environ["RALPH_BLOCKER_FILE"]
         Path(path).write_text(step.get("reason", "Fixture needs more information\n"))
+    elif action == "stdin":
+        # Shows whether the session is attached to the runner's stdin or /dev/null.
+        Path(step["file"]).write_text(sys.stdin.read())
     elif action == "hang":
         time.sleep(step.get("seconds", 60))
     elif action == "exit":
