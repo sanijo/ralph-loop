@@ -9,7 +9,9 @@ Install the Ralph Loop template into a target git repository.
 
 Options:
   --dry-run   Print planned changes without writing files.
-  --force     Overwrite conflicting managed files.
+  --force     Overwrite conflicting managed files. Existing seed files
+              (AGENTS.md, CLAUDE.md, .ralph/config, docs/agents/) are never
+              overwritten.
 USAGE
 }
 
@@ -71,10 +73,23 @@ say() {
   fi
 }
 
+# Seed files are starting points the target owns: create them only when missing.
+is_seed_file() {
+  case $1 in
+    AGENTS.md | CLAUDE.md | .ralph/config | docs/agents/*) return 0 ;;
+  esac
+  return 1
+}
+
 install_file() {
   src=$1
   dest=$2
   rel=${dest#"$target_root"/}
+
+  if is_seed_file "$rel" && { [ -e "$dest" ] || [ -L "$dest" ]; }; then
+    say "skip existing seed $rel"
+    return 0
+  fi
 
   if [ -f "$dest" ]; then
     if cmp -s "$src" "$dest"; then
@@ -104,16 +119,46 @@ find "$template_dir" -type f | sort | while IFS= read -r src; do
 done
 
 gitignore=$target_root/.gitignore
-gitignore_block='### Ralph Loop managed block
+gitignore_begin='### Ralph Loop managed block'
+gitignore_end='### End Ralph Loop managed block'
+gitignore_block="$gitignore_begin
 .ralph/.env
 .ralph/logs/
 .ralph/tmp/
 .ralph/cache/
 .ralph/worktrees/
-### End Ralph Loop managed block'
+$gitignore_end"
 
-if [ -f "$gitignore" ] && grep -Fq '### Ralph Loop managed block' "$gitignore"; then
-  say "skip existing .gitignore Ralph block"
+if [ -f "$gitignore" ] && grep -Fxq "$gitignore_begin" "$gitignore"; then
+  # Rewrite the existing block in place, keeping everything outside its markers.
+  gitignore_tmp=$(mktemp)
+  trap 'rm -f "$gitignore_tmp"' EXIT
+  gitignore_status=0
+  RALPH_BEGIN=$gitignore_begin RALPH_END=$gitignore_end RALPH_BLOCK=$gitignore_block awk '
+    !inside && $0 == ENVIRON["RALPH_BEGIN"] {
+      if (!written) print ENVIRON["RALPH_BLOCK"]
+      written = 1
+      inside = 1
+      next
+    }
+    inside { if ($0 == ENVIRON["RALPH_END"]) inside = 0; next }
+    { print }
+    END { if (inside) exit 3 }
+  ' "$gitignore" >"$gitignore_tmp" || gitignore_status=$?
+
+  if [ "$gitignore_status" -eq 3 ]; then
+    say "skip .gitignore Ralph block without end marker (fix it manually)"
+  elif [ "$gitignore_status" -ne 0 ]; then
+    echo "Failed to rewrite .gitignore Ralph block" >&2
+    exit 1
+  elif cmp -s "$gitignore_tmp" "$gitignore"; then
+    say "skip identical .gitignore Ralph block"
+  else
+    say "update .gitignore Ralph block"
+    if [ "$dry_run" -ne 1 ]; then
+      cat "$gitignore_tmp" >"$gitignore"
+    fi
+  fi
 else
   say "append .gitignore Ralph block"
   if [ "$dry_run" -ne 1 ]; then

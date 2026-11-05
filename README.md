@@ -9,9 +9,14 @@ bash scripts/install.sh --dry-run /path/to/target-repo
 bash scripts/install.sh /path/to/target-repo
 ```
 
-The target must already be a Git worktree. Installation copies the runner, config, Claude settings, prompt, helpers, provider bridges, instruction stubs, tracker docs and usage notes into the target. New Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`.
+The target must already be a Git worktree. The installer copies two kinds of files:
 
-Repeated installs skip identical files. Conflicting files are skipped unless `--force` is requested; review customized instruction/config files before forcing an update. Installer dry-run prints planned changes and writes nothing. Existing ignore blocks are currently left intact: add `.ralph/worktrees/` manually when upgrading from v1. The installer does not delete obsolete files; `.ralph/progress.md` and `.ralph/helpers/close-issue.sh` are no longer used and can be removed after review.
+- **Managed files** belong to Ralph: the runner, prompt, helpers, provider bridges, Ralph Claude settings, `.ralph/.env.example` and the usage notes in `.ralph/README.md`. Identical files are skipped; conflicting files are skipped unless `--force` is requested, so `--force` is how you update Ralph.
+- **Seed files** belong to the target once installed: `AGENTS.md`, `CLAUDE.md`, `.ralph/config` and `docs/agents/`. They are created only when missing and never overwritten, even with `--force`. `CLAUDE.md` is a bridge that imports `AGENTS.md` (`@AGENTS.md`).
+
+The installer never creates or overwrites a target-root `README.md`. It writes a Ralph-managed `.gitignore` block covering `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`; an existing block, such as v1's, is rewritten in place between its markers and lines outside them are kept. Repeated installs are idempotent, and installer dry-run prints planned changes and writes nothing.
+
+Upgrading from v1: the installer does not delete obsolete files. These v1 files are no longer used and can be removed after review: `.ralph/progress.md`, `.ralph/helpers/close-issue.sh`, and the target-root `README.md` usage notes (now `.ralph/README.md`; keep it if it is your project's own README). Compare new seed templates with your copies by hand.
 
 ## Configure a target
 
@@ -186,6 +191,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads, remote-only branch resume, the single-runner lock and worktree cleanup. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, seed versus managed files, `.gitignore` block upgrades, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads, remote-only branch resume, the single-runner lock and worktree cleanup. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

@@ -12,7 +12,7 @@ expected_files=(
   '.opencode/agents/ralph.md'
   'AGENTS.md'
   'CLAUDE.md'
-  'README.md'
+  '.ralph/README.md'
   'docs/agents/issue-tracker.md'
   'docs/agents/triage-labels.md'
   '.gitignore'
@@ -24,6 +24,7 @@ for rel in "${expected_files[@]}"; do
     exit 1
   fi
 done
+test ! -e "$TARGET/README.md"
 test ! -e "$TARGET/.ralph/progress.md"
 test ! -e "$TARGET/.ralph/helpers/close-issue.sh"
 

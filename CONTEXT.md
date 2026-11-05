@@ -12,7 +12,9 @@ This repository is the source project, not an installed target project. Root-lev
 - **Source repository**: This repository. It owns the installer, reusable template payload, source documentation, verification script, and CI workflow.
 - **Target repository**: A separate Git worktree that receives the template payload and runs Ralph against its own issues, labels, and verification commands.
 - **Template payload**: The files under `template/` that `scripts/install.sh` copies into a target repository.
-- **Installer**: `scripts/install.sh`, a POSIX shell script that installs the template payload, appends the Ralph-managed `.gitignore` block (including `.ralph/worktrees/` for new blocks), skips conflicting files unless `--force` is used, and supports `--dry-run`. Existing ignore blocks are left intact in this slice.
+- **Installer**: `scripts/install.sh`, a POSIX shell script that installs the template payload as managed and seed files, writes the Ralph-managed `.gitignore` block (rewriting an existing block in place between its markers, so upgraded targets also ignore `.ralph/worktrees/`), and supports `--force` and `--dry-run`. It never writes a target-root `README.md`.
+- **Managed file**: A Ralph-owned payload file (runner, prompt, helpers, provider bridges, Ralph Claude settings, `.ralph/README.md` usage notes, `.ralph/.env.example`). Identical files are skipped; conflicting files are skipped unless `--force` is used.
+- **Seed file**: A starting point the target owns after install: `AGENTS.md`, `CLAUDE.md` (the Claude bridge, which imports `AGENTS.md`), `.ralph/config` and `docs/agents/`. Created only when missing and never overwritten, even with `--force`.
 - **Verifier**: `scripts/verify.sh`, a Bash script that syntax-checks shell files, installs the template into temporary Git repositories, checks ignored local paths, verifies runner argument behavior, and confirms repeated installs are idempotent.
 - **Runner**: `.ralph/ralph.sh` in an installed target. It runs one or more Ralph iterations through the selected provider adapter.
 - **Ralph iteration**: One runner-selected issue implemented by an agent in its workstream worktree, followed by runner verification and publishing. A run with no eligible issue finishes `COMPLETE` (nothing ready remains) or `BLOCKED` (ready issues remain, none eligible) without an agent session.
@@ -46,7 +48,7 @@ This repository is the source project, not an installed target project. Root-lev
 
 ## Key Workflows
 
-- **Install into a target**: Run `bash scripts/install.sh /path/to/target-repo`. The target must already be a Git worktree. Use `--dry-run` to preview and `--force` to overwrite conflicting managed files intentionally.
+- **Install into a target**: Run `bash scripts/install.sh /path/to/target-repo`. The target must already be a Git worktree. Use `--dry-run` to preview and `--force` to overwrite conflicting managed files intentionally; seed files are never overwritten.
 - **Configure a target**: Replace installed stubs with target-specific tracker, label, and verification details before unattended runs. Keep secrets in ignored `.ralph/.env`, not in committed template files.
 - **Run Ralph in a target**: Configure `RALPH_VERIFY_COMMAND`, then run `.ralph/ralph.sh`, optionally with `--provider`, `--model`, `--effort`, `--max-iterations`, or `--no-auto-approve`.
 - **Complete an issue**: The agent commits implementation work locally. The runner requires new commits and a clean worktree, runs verification, pushes the workstream branch, and posts one Markdown comment before closing the issue. Issues close on push, before merge.
@@ -57,8 +59,8 @@ This repository is the source project, not an installed target project. Root-lev
 ## Working Rules
 
 - Make changes that affect installed target behavior under `template/` unless the change is strictly source-repository-only.
-- Keep target-facing stubs generic. Do not put this source repository's issue numbers, labels, local paths, or verification commands into `template/AGENTS.md`, `template/README.md`, or `template/docs/agents/` unless they are reusable defaults.
-- Preserve installer behavior: non-forced installs skip conflicting files, installer dry-runs do not write, repeated installs remain idempotent, and new Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/`, and `.ralph/worktrees/`.
+- Keep target-facing stubs generic. Do not put this source repository's issue numbers, labels, local paths, or verification commands into `template/AGENTS.md`, `template/.ralph/README.md`, or `template/docs/agents/` unless they are reusable defaults.
+- Preserve installer behavior: non-forced installs skip conflicting managed files, seed files are never overwritten, installer dry-runs do not write, repeated installs remain idempotent, and the Ralph-managed `.gitignore` block (rewritten in place between its markers) covers `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/`, and `.ralph/worktrees/`.
 - Use POSIX-compatible shell in `scripts/install.sh`. The runner, helpers, and verifier are Bash scripts.
 - Use the repo's existing terminology when naming files, issues, tests, and concepts.
 - If a domain term is unclear, ask or document the uncertainty instead of inventing a synonym.

@@ -175,8 +175,12 @@ its outcome and the PR link (`RALPH_NOTIFY_ON_ITERATION=0` turns these off).
 The end of the run sends the terminal result with the run summary.
 Notification failures never fail the run or change its exit code.
 
-Installer updates skip identical/conflicting files unless forced. Review custom
-instructions/config before `--force`. Add `.ralph/worktrees/` to an existing v1
-ignore block manually; new blocks already include it. The obsolete v1
-`.ralph/progress.md` and `.ralph/helpers/close-issue.sh` are not used or deleted by
-updates. Prompt completion markers and prompt-level dry-run are no longer used.
+Installer updates skip identical managed files (runner, prompt, helpers,
+provider bridges, Claude settings, this file) and skip conflicting ones unless
+forced. Seed files (`AGENTS.md`, `CLAUDE.md`, `.ralph/config`, `docs/agents/`)
+are created only when missing and never overwritten, even with `--force`. The
+Ralph `.gitignore` block is rewritten in place, so v1 blocks gain
+`.ralph/worktrees/`. The obsolete v1 `.ralph/progress.md`,
+`.ralph/helpers/close-issue.sh` and target-root `README.md` usage notes are not
+used or deleted by updates. Prompt completion markers and prompt-level dry-run
+are no longer used.
