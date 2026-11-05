@@ -36,34 +36,6 @@ truncate_text() {
   printf '%s\n...[truncated]' "${text:0:limit}"
 }
 
-latest_progress_block() {
-  local progress_file="${RALPH_PROGRESS_FILE:-}"
-  local line=""
-  local current=""
-  local in_block=0
-
-  if [[ -z "$progress_file" || ! -f "$progress_file" ]]; then
-    printf 'No progress file found.'
-    return
-  fi
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == '## '* ]]; then
-      current="$line"$'\n'
-      in_block=1
-    elif [[ "$in_block" -eq 1 ]]; then
-      current+="$line"$'\n'
-    fi
-  done <"$progress_file"
-
-  if [[ -z "$current" ]]; then
-    printf 'No progress entry yet.'
-    return
-  fi
-
-  truncate_text "$current" 1200
-}
-
 repo_root="${RALPH_REPO_ROOT:-$(pwd)}"
 repo_name="$(basename "$repo_root")"
 branch="unknown"
@@ -92,7 +64,6 @@ provider="${RALPH_PROVIDER_NAME:-${RALPH_PROVIDER:-unknown}}"
 exit_code="${RALPH_EXIT_CODE:-unknown}"
 provider_status="${RALPH_PROVIDER_STATUS:-unknown}"
 timestamp="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-progress="$(latest_progress_block)"
 
 message="Ralph status: $status
 Summary: ${summary:-none}
@@ -107,10 +78,7 @@ Model: $model
 Variant: $variant
 Exit code: $exit_code
 Provider status: $provider_status
-Time: $timestamp
-
-Latest progress:
-$progress"
+Time: $timestamp"
 
 message="$(truncate_text "$message" 3900)"
 

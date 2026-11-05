@@ -12,7 +12,6 @@ Options:
   --model MODEL             Optional provider model override.
   --variant VARIANT         Optional provider model variant. OpenCode only.
   --max-iterations COUNT    Maximum iterations to run. Default: 1.
-  --dry-run                 Tell the agent this run must not push or close issues.
   --no-auto-approve         Disable provider auto-approval flags.
   -h, --help                Show this help.
 
@@ -28,7 +27,8 @@ ENV_FILE="${RALPH_ENV_FILE:-$SCRIPT_DIR/.env}"
 PROMPT_FILE="$SCRIPT_DIR/prompt.md"
 LOG_DIR="$SCRIPT_DIR/logs"
 NOTIFY_SCRIPT="$SCRIPT_DIR/helpers/notify.sh"
-PROGRESS_FILE="$SCRIPT_DIR/progress.md"
+# shellcheck source=template/.ralph/helpers/tracker.sh
+source "$SCRIPT_DIR/helpers/tracker.sh"
 
 if [[ -f "$CONFIG_FILE" ]]; then
   set -a
@@ -48,8 +48,8 @@ provider="${RALPH_PROVIDER:-opencode}"
 model="${RALPH_MODEL:-}"
 variant="${RALPH_VARIANT:-}"
 max_iterations="${RALPH_MAX_ITERATIONS:-1}"
-dry_run=0
 auto_approve=1
+verify_command="${RALPH_VERIFY_COMMAND:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -89,10 +89,6 @@ while [[ $# -gt 0 ]]; do
       max_iterations="${1#*=}"
       shift
       ;;
-    --dry-run)
-      dry_run=1
-      shift
-      ;;
     --no-auto-approve)
       auto_approve=0
       shift
@@ -116,16 +112,30 @@ fi
 
 if [[ ! -f "$PROMPT_FILE" ]]; then
   printf 'Error: missing prompt file: %s\n' "$PROMPT_FILE" >&2
-  exit 1
+  exit 4
 fi
 
 if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   printf 'Error: Ralph must run from an installed target git repository\n' >&2
-  exit 1
+  exit 4
 fi
 
-rm -rf "$LOG_DIR"
-mkdir -p "$LOG_DIR"
+if [[ -z "${verify_command//[[:space:]]/}" ]]; then
+  printf 'Error: set RALPH_VERIFY_COMMAND in .ralph/config or .ralph/.env\n' >&2
+  exit 4
+fi
+if ! git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+  printf 'Error: origin remote required\n' >&2
+  exit 4
+fi
+for dependency in gh jq; do
+  command -v "$dependency" >/dev/null 2>&1 || { printf 'Error: missing dependency: %s\n' "$dependency" >&2; exit 4; }
+done
+cd "$REPO_ROOT"
+tracker_init || exit 4
+mkdir -p "$LOG_DIR" "$SCRIPT_DIR/tmp"
+RUN_TMP="$(mktemp -d "$SCRIPT_DIR/tmp/run.XXXXXX")"
+trap 'rm -rf "$RUN_TMP"' EXIT
 
 notify_ralph() {
   local notify_status="$1"
@@ -139,7 +149,6 @@ notify_ralph() {
   fi
 
   RALPH_REPO_ROOT="$REPO_ROOT" \
-    RALPH_PROGRESS_FILE="$PROGRESS_FILE" \
     RALPH_PROVIDER_NAME="$provider" \
     RALPH_MODEL_NAME="${model:-provider default}" \
     RALPH_VARIANT_NAME="${variant:-provider default}" \
@@ -173,7 +182,7 @@ run_opencode() {
     args+=(${RALPH_OPENCODE_ARGS})
   fi
 
-  (cd "$REPO_ROOT" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
+  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
 run_claude() {
@@ -195,7 +204,7 @@ run_claude() {
     args+=(${RALPH_CLAUDE_ARGS})
   fi
 
-  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
 run_codex() {
@@ -217,26 +226,26 @@ run_codex() {
     args+=(${RALPH_CODEX_ARGS})
   fi
 
-  "$binary" "${args[@]}" "$prompt" 2>&1 | tee "$log_file"
+  (cd "$worktree" && "$binary" "${args[@]}" "$prompt") 2>&1 | tee "$log_file"
 }
 
 case "$provider" in
   opencode)
     if ! command -v "${RALPH_OPENCODE_BIN:-opencode}" >/dev/null 2>&1; then
       printf 'Error: missing dependency for provider opencode: %s\n' "${RALPH_OPENCODE_BIN:-opencode}" >&2
-      exit 1
+      exit 4
     fi
     ;;
   claude)
     if ! command -v "${RALPH_CLAUDE_BIN:-claude}" >/dev/null 2>&1; then
       printf 'Error: missing dependency for provider claude: %s\n' "${RALPH_CLAUDE_BIN:-claude}" >&2
-      exit 1
+      exit 4
     fi
     ;;
   codex)
     if ! command -v "${RALPH_CODEX_BIN:-codex}" >/dev/null 2>&1; then
       printf 'Error: missing dependency for provider codex: %s\n' "${RALPH_CODEX_BIN:-codex}" >&2
-      exit 1
+      exit 4
     fi
     ;;
   *)
@@ -245,7 +254,7 @@ case "$provider" in
     ;;
 esac
 
-printf 'Starting Ralph: provider=%s max_iterations=%s dry_run=%s\n' "$provider" "$max_iterations" "$dry_run"
+printf 'Starting Ralph: provider=%s max_iterations=%s\n' "$provider" "$max_iterations"
 if [[ -n "$model" ]]; then
   printf 'Model override: %s\n' "$model"
 fi
@@ -253,58 +262,117 @@ if [[ -n "$variant" ]]; then
   printf 'Variant override: %s\n' "$variant"
 fi
 
+complete_run() {
+  printf 'COMPLETE: no open ready-for-agent issues remain.\n'
+  notify_ralph 'COMPLETE' 'All ready issues are complete.' 0
+  exit 0
+}
+
+fail_iteration() {
+  printf 'Error: issue #%s: %s. See %s\n' "$number" "$1" "$log_file" >&2
+  notify_ralph 'ERROR' "Issue #$number: $1. See $log_file." 3
+  exit 3
+}
+
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
-  log_file="$LOG_DIR/iteration-$iteration.log"
-  header="Ralph iteration $iteration of $max_iterations. Repository root: $REPO_ROOT. Progress file: $SCRIPT_DIR/progress.md."
-
-  if [[ "$dry_run" -eq 1 ]]; then
-    header="$header Dry-run mode is enabled: do not push commits, close issues, or mutate the issue tracker."
+  issues="$(tracker_ready_issues)"
+  number="$(jq -r 'sort_by(.number) | .[0].number // empty' <<<"$issues")"
+  [[ -n "$number" ]] || complete_run
+  issue="$(tracker_issue "$number")"
+  parent="$(tracker_parent "$issue" "$RUN_TMP/parent-error")"
+  prd='none (standalone)'
+  slug=issues
+  if [[ -n "$parent" ]]; then
+    parent_issue="$(tracker_issue "$parent")"
+    prd="#$parent: $(jq -r '.title' <<<"$parent_issue")"
+    slug="$(jq -r '.title | ascii_downcase | sub("^prd[: ]*"; "") | gsub("[^a-z0-9]+"; "-") | sub("^-"; "") | sub("-$"; "")' <<<"$parent_issue")"
+    [[ -n "$slug" ]] || slug="prd-$parent"
   fi
+  branch="ralph/$slug"
+  worktree="$SCRIPT_DIR/worktrees/$slug"
+  git fetch origin
+  if [[ -e "$worktree" ]]; then
+    [[ "$(git -C "$worktree" rev-parse --show-toplevel)" == "$worktree" &&
+       "$(git -C "$worktree" branch --show-current)" == "$branch" ]] || {
+      printf 'Error: unexpected worktree at %s\n' "$worktree" >&2; exit 4;
+    }
+  elif git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$worktree" "$branch"
+  else
+    git worktree add -b "$branch" "$worktree" "refs/remotes/origin/$DEFAULT_BRANCH"
+  fi
+  if [[ -n "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]]; then
+    printf 'Error: existing worktree is dirty: %s\n' "$worktree" >&2
+    exit 4
+  fi
+  before="$(git -C "$worktree" rev-parse HEAD)"
+  export RALPH_BLOCKER_FILE="$RUN_TMP/blocker-$iteration.md"
+  log_file="$LOG_DIR/iteration-$iteration-issue-$number.log"
+  iteration_prompt="$(<"$PROMPT_FILE")
 
-  iteration_prompt="$header"$'\n\n'"$(<"$PROMPT_FILE")"
+## Runner context
+Issue: #$number
+Title: $(jq -r '.title' <<<"$issue")
+PRD: $prd
+Workstream branch: $branch
+Verify command: $verify_command
+Blocker report: $RALPH_BLOCKER_FILE
+
+### Issue body
+$(jq -r '.body // ""' <<<"$issue")
+
+### Issue comments
+$(jq -r '.comments[]? | .body' <<<"$issue")"
 
   set +e
   case "$provider" in
     opencode)
       run_opencode "$iteration_prompt" "$log_file"
-      status=${PIPESTATUS[0]}
+      status=$?
       ;;
     claude)
       run_claude "$iteration_prompt" "$log_file"
-      status=${PIPESTATUS[0]}
+      status=$?
       ;;
     codex)
       run_codex "$iteration_prompt" "$log_file"
-      status=${PIPESTATUS[0]}
+      status=$?
       ;;
   esac
   set -e
 
-  if [[ "$status" -ne 0 ]]; then
-    printf 'Ralph provider failed in iteration %s with status %s. See %s\n' "$iteration" "$status" "$log_file" >&2
-    notify_ralph 'ERROR' "Provider failed in iteration $iteration. See $log_file." "$status" "$status" "$iteration"
-    exit "$status"
+  [[ "$status" -eq 0 ]] || fail_iteration "provider exited $status"
+  [[ ! -f "$RALPH_BLOCKER_FILE" ]] || fail_iteration "agent blocked: $(<"$RALPH_BLOCKER_FILE")"
+  after="$(git -C "$worktree" rev-parse HEAD)"
+  [[ "$(git -C "$worktree" branch --show-current)" == "$branch" ]] || fail_iteration 'agent changed branch'
+  [[ "$after" != "$before" ]] || fail_iteration 'no new commit'
+  git -C "$worktree" merge-base --is-ancestor "$before" "$after" || fail_iteration 'agent rewrote existing history'
+  [[ -z "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]] || fail_iteration 'dirty worktree'
+  if ! (cd "$worktree" && bash -c "$verify_command") 2>&1 | tee -a "$log_file"; then
+    fail_iteration 'verification failed'
   fi
-
-  output="$(<"$log_file")"
-
-  if [[ "$output" == *'<promise>COMPLETE</promise>'* ]]; then
-    printf 'Ralph completed all available implementation issues after %s iteration(s).\n' "$iteration"
-    notify_ralph 'COMPLETE' 'All available implementation issues are complete.' 0 "$status" "$iteration"
-    exit 0
-  fi
-
-  if [[ "$output" == *'<promise>BLOCKED</promise>'* ]]; then
-    printf 'Ralph is blocked: no eligible ready-for-agent issue is available.\n'
-    notify_ralph 'BLOCKED' 'No eligible ready-for-agent issue is available.' 2 "$status" "$iteration"
-    exit 2
-  fi
+  [[ "$(git -C "$worktree" rev-parse HEAD)" == "$after" &&
+     "$(git -C "$worktree" branch --show-current)" == "$branch" &&
+     -z "$(git -C "$worktree" status --porcelain --untracked-files=all)" ]] || fail_iteration 'verification changed the worktree'
+  git -C "$worktree" push -u origin "$branch" || fail_iteration 'push failed'
+  comment_file="$RUN_TMP/close-$number.md"
+  {
+    printf 'Implemented #%s:\n\n' "$number"
+    git -C "$worktree" log --reverse --format='- %s' "$before..$after"
+    # Backticks are Markdown, not shell substitutions.
+    # shellcheck disable=SC2016
+    printf '\nVerification: `%s` passed in the worktree.\n' "$verify_command"
+    printf '\nImplementation commit: https://github.com/%s/commit/%s\n' "$TRACKER_REPO" "$after"
+  } >"$comment_file"
+  tracker_close "$number" "$comment_file"
 
   if [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == '1' ]]; then
     notify_ralph 'ITERATION_COMPLETE' "Iteration $iteration completed successfully." 0 "$status" "$iteration"
   fi
 done
 
-printf 'Ralph finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
-notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations) without a completion signal." 1 'unknown' "$max_iterations"
+issues="$(tracker_ready_issues)"
+[[ "$(jq 'length' <<<"$issues")" -gt 0 ]] || complete_run
+printf 'MAX_ITERATIONS: finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
+notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations)." 1 'unknown' "$max_iterations"
 exit 1

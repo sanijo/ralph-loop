@@ -30,7 +30,7 @@ setup_scenario() {
   done
   export PATH="$FAKE_BIN:$PATH"
   printf '%s\n' '{"issues":[],"prs":[]}' >"$RALPH_TEST_STATE"
-  printf '%s\n' '{"action":"noop","output":"<promise>COMPLETE</promise>"}' >"$RALPH_TEST_PROVIDER_SCRIPT"
+  printf '%s\n' '{"action":"noop"}' >"$RALPH_TEST_PROVIDER_SCRIPT"
   : >"$RALPH_TEST_EVENTS"
 
   git init --quiet --bare --initial-branch=main "$ORIGIN"
@@ -39,6 +39,7 @@ setup_scenario() {
   git -C "$TARGET" config user.email 'ralph-verify@example.invalid'
   git -C "$TARGET" remote add origin "$ORIGIN"
   bash "$REPO_ROOT/scripts/install.sh" "$TARGET" >/dev/null
+  printf '\nRALPH_VERIFY_COMMAND=true\n' >>"$TARGET/.ralph/config"
   git -C "$TARGET" add .
   git -C "$TARGET" commit --quiet -m 'initial install'
   git -C "$TARGET" push --quiet -u origin main
@@ -58,6 +59,19 @@ done
 HOOK
   chmod +x "$ORIGIN/hooks/post-receive"
   cd "$TARGET" || return 1
+}
+
+prepare_runner_issue() {
+  local number="$1"
+  cat >"$RALPH_TEST_STATE" <<JSON
+{"issues":[
+  {"number":40,"title":"PRD: Fixture workstream","state":"OPEN","labels":[]},
+  {"number":$number,"title":"Fixture slice","state":"OPEN","labels":["ready-for-agent"],"parent":40,"body":"Implement fixture slice"}
+],"prs":[]}
+JSON
+  cat >"$RALPH_TEST_PROVIDER_SCRIPT" <<JSON
+{"action":"commit","file":"issue-$number.txt","message":"feat: implement #$number"}
+JSON
 }
 
 run_runner() {

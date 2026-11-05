@@ -5,6 +5,9 @@ RALPH_MAX_ITERATIONS=1
 RALPH_MODEL=openai/gpt-5.5
 RALPH_VARIANT=high
 
+# Required: exact target-repository verification command, run from its worktree.
+RALPH_VERIFY_COMMAND=
+
 # Equivalent CLI flags:
 # .ralph/ralph.sh --model openai/gpt-5.5 --variant high
 # Override these defaults in .ralph/.env or with CLI flags to change model selection.

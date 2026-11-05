@@ -5,10 +5,9 @@ expected_files=(
   '.ralph/prompt.md'
   '.ralph/config'
   '.ralph/.env.example'
-  '.ralph/helpers/close-issue.sh'
+  '.ralph/helpers/tracker.sh'
   '.ralph/helpers/notify.sh'
   '.ralph/helpers/telegram-chat-id.sh'
-  '.ralph/progress.md'
   '.opencode/agents/ralph.md'
   'AGENTS.md'
   'CLAUDE.md'
@@ -24,12 +23,15 @@ for rel in "${expected_files[@]}"; do
     exit 1
   fi
 done
+test ! -e "$TARGET/.ralph/progress.md"
+test ! -e "$TARGET/.ralph/helpers/close-issue.sh"
 
 for ignored in \
   '.ralph/.env' \
   '.ralph/logs/iteration-1.log' \
   '.ralph/tmp/work' \
-  '.ralph/cache/provider'; do
+  '.ralph/cache/provider' \
+  '.ralph/worktrees/fixture/file'; do
   git -C "$TARGET" check-ignore --quiet "$ignored"
 done
 assert_remote_commit "$(git rev-parse HEAD)"

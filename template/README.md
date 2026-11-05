@@ -1,40 +1,68 @@
-# Ralph Loop Template Payload
+# Ralph Loop target setup
 
-Files in this directory are installed into target Git repositories by the Ralph Loop installer.
-
-Run Ralph from an installed target repository with:
-
-```bash
-.ralph/ralph.sh
-```
-
-The installed runner selects OpenCode by default, loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. The committed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high`; command-line `--model` and `--variant` override config for one run.
-
-Provider binaries and extra arguments can be overridden without editing the runner:
+Document project instructions and exact checks in `AGENTS.md`, and tracker/label
+conventions in `docs/agents/`. Set the required `RALPH_VERIFY_COMMAND` in
+`.ralph/config`. Commit the installation and push your default branch to `origin`.
+Authenticate `gh`; install Bash, Git, jq and your provider CLI before running.
 
 ```bash
-RALPH_OPENCODE_BIN=opencode
-RALPH_OPENCODE_ARGS=
-RALPH_CLAUDE_BIN=claude
-RALPH_CLAUDE_ARGS=
-RALPH_CODEX_BIN=codex
-RALPH_CODEX_ARGS=
+.ralph/ralph.sh --max-iterations 3
+.ralph/ralph.sh --provider claude --model your-model
+.ralph/ralph.sh --provider codex --no-auto-approve
 ```
 
-All three providers support unattended runs: Claude uses `--print` with the Ralph prompt, OpenCode uses `run` from the target repository root, and Codex uses `exec`. Provider output is saved in the iteration log so completion and blocked markers are detected. Claude uses the installed `CLAUDE.md` bridge, OpenCode uses `.opencode/agents/ralph.md`, and Codex relies on canonical `AGENTS.md` instructions. Select a model supported by your provider with `--model` or local config.
+The runner selects the lowest-numbered open `ready-for-agent` issue, fetching its
+body/comments and resolving its PRD from a native parent link or `## Parent`
+section. It fetches `origin`, then creates or reuses a `ralph/<prd-title-slug>`
+branch in `.ralph/worktrees/<slug>`. Standalone issues use `ralph/issues`.
+New branches start at the remote default branch, not the current checkout.
+The main checkout's branch, index and project files stay unchanged.
 
-Auto-approval is enabled by default for unattended runs: OpenCode receives `--auto`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` to keep the provider's normal permission or sandbox behavior.
+The agent implements just the supplied issue and commits locally. The runner
+requires new commits, a clean worktree, no blocker report and successful independent
+verification before pushing. It then posts one Markdown comment with commit
+subjects, commit URL and verify result and closes the issue. Issues close on push,
+before merge; reopen them manually if a workstream is abandoned.
 
-Useful options:
+No open ready issues means `COMPLETE` without invoking a provider. Exit codes:
+`0` complete, `1` iteration limit, `2` usage, `3` iteration failure, `4` preconditions.
+Failures currently stop without publishing that iteration; local work remains
+for inspection. Logs are under `.ralph/logs/`.
 
-```bash
-.ralph/ralph.sh --dry-run
-.ralph/ralph.sh --model openai/gpt-5.5 --variant high --max-iterations 3
-.ralph/ralph.sh --provider opencode --no-auto-approve
-.ralph/ralph.sh --provider claude
-.ralph/ralph.sh --provider codex
-```
+This slice does not yet enforce blockers/excluded labels, create PRs, recover failed
+iterations, resume remote-only branches, or support runner dry-run/interactive modes.
+Label only safe implementation issues as ready, not PRDs or blocked issues.
 
-Dry-run mode is included in the generated agent prompt so the agent knows not to push commits, close issues, or mutate the issue tracker. Each run clears old ignored logs under `.ralph/logs/` and writes new provider output logs there for diagnosis.
+## Provider configuration
 
-For OpenCode, the variant is appended to the model (`--model provider/model#variant`), not passed as a separate provider flag. Without a model, a configured variant is ignored; without a variant, the model is passed unchanged. Claude and Codex adapters ignore `RALPH_VARIANT`.
+Configuration precedence: `.ralph/config`, ignored `.ralph/.env`, CLI flags.
+OpenCode is default; config pins `RALPH_MODEL=openai/gpt-5.5` and
+`RALPH_VARIANT=high`. Use `--provider`, `--model`, `--variant`, and
+`--max-iterations` to override. Empty model omits the model flag; OpenCode maps
+variant to `--model provider/model#variant`. Claude/Codex ignore variant.
+
+Headless adapters use OpenCode `run`, Claude `--print`, and Codex `exec`, all
+inside the worktree. Auto-approval is enabled by default (`--auto`,
+`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`,
+respectively). Use `--no-auto-approve` to omit these flags. The agent's no-push/no-tracker
+rule is a prompt contract, not an enforced sandbox. Check your installed CLI and
+model manually before unattended use.
+
+Override provider binaries and whitespace-separated extra arguments with
+`RALPH_OPENCODE_BIN`/`RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`/`RALPH_CLAUDE_ARGS`,
+or `RALPH_CODEX_BIN`/`RALPH_CODEX_ARGS` in local settings.
+
+## Notifications and upgrades
+
+For optional Telegram notifications, copy `.ralph/.env.example` to `.ralph/.env`,
+set `RALPH_NOTIFY=telegram`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`.
+Send the bot `/start`, then use `.ralph/helpers/telegram-chat-id.sh`.
+Webhook conflicts require an explicit `--delete-webhook`. Test with
+`.ralph/helpers/notify.sh ITERATION_COMPLETE "Notification test"`.
+Notification failures never fail the run.
+
+Installer updates skip identical/conflicting files unless forced. Review custom
+instructions/config before `--force`. Add `.ralph/worktrees/` to an existing v1
+ignore block manually; new blocks already include it. The obsolete v1
+`.ralph/progress.md` and `.ralph/helpers/close-issue.sh` are not used or deleted by
+updates. Prompt completion markers and prompt-level dry-run are no longer used.

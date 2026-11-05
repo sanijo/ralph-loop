@@ -6,7 +6,7 @@
 
 - Make installed behavior changes in `template/` unless the change is only for this source repository.
 - Keep target-facing template stubs generic. Do not bake this source repo's issue numbers, labels, verification commands, or local paths into `template/AGENTS.md`, `template/README.md`, or `template/docs/agents/` unless they are intentionally reusable defaults.
-- Preserve the installer contract: non-forced installs skip conflicting managed files, repeated installs are idempotent, and the Ralph-managed `.gitignore` block covers `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, and `.ralph/cache/`.
+- Preserve the installer contract: non-forced installs skip conflicting managed files, repeated installs are idempotent, and new Ralph-managed `.gitignore` blocks cover `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/`, and `.ralph/worktrees/`. Existing blocks are currently left intact; upgrades need the worktree ignore added manually until the installer upgrade slice lands.
 - Use POSIX-compatible shell for `scripts/install.sh`. The runner, helpers, and verifier are Bash scripts and are syntax-checked by `scripts/verify.sh`.
 - Do not commit local run state or secrets from `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, or `.ralph/cache/`.
 

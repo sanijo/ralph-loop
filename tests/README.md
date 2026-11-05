@@ -11,7 +11,7 @@ Add a Bash file under `tests/scenarios/`. The verifier runs each file in a fresh
 - `assert_json file 'jq expression'` slurps JSON or JSONL into an array and requires a truthy result. Include existence/count checks to avoid vacuous assertions.
 - `assert_remote_commit hash [branch]` checks ancestry on the **bare remote**, not a local tracking ref. The default branch is `main`.
 
-Only test observable behavior: commands, files, exit codes, commits, logs, and tracker state. Do not inspect runner source or call its internal functions. Scenarios 05–07 smoke-test the harness doubles themselves; they do not claim that the current v1 runner owns tracker or publishing operations.
+Only test observable behavior: commands, files, exit codes, commits, logs, and tracker state. Do not inspect runner source or call its internal functions. Scenarios 05–07 smoke-test the harness doubles; runner scenarios exercise real worktree preparation, verification, pushing and tracker closure through the installed entry point. Setup supplies `RALPH_VERIFY_COMMAND=true` in the target config; override it per scenario when checking verification behavior. `prepare_runner_issue N` supplies one ready issue under a fixture PRD and a provider commit script.
 
 ## Tracker fixtures
 
@@ -32,6 +32,6 @@ Write a JSON object or list of objects to `$RALPH_TEST_PROVIDER_SCRIPT`. All thr
 | `hang` | Sleep for `seconds` (default 60); caller must enforce a timeout |
 | `blocker` | Write `reason` to `path`, or `$RALPH_BLOCKER_FILE` |
 
-Each step can print `output`. The default script prints the current v1 COMPLETE promise. A list can model compound behavior, such as commit then dirty. Paths are relative to the provider's working directory unless absolute.
+Each step can print `output`. The default script does nothing. A list can model compound behavior, such as commit then dirty. Paths are relative to the provider's working directory unless absolute. The runner exports `RALPH_BLOCKER_FILE` for blocker actions.
 
 Every fake command appends `{tool, argv, cwd}` to `$RALPH_TEST_EVENTS` (JSONL), preserving arguments with spaces and newlines. A bare-origin post-receive hook records `{tool: "git-push", old, new, ref}` after pushes complete. Use this shared stream to assert push-before-comment/close ordering. The initial setup push is not logged. The harness strips inherited Ralph settings, disables global Git configuration and allows only the file transport, preventing accidental real remote access.

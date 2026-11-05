@@ -12,7 +12,8 @@ fi
 git push --quiet origin main
 assert_remote_commit "$commit"
 printf 'Implemented fixture issue.\n\nVerification: passed.\n' >"$SCENARIO_DIR/close.md"
-bash "$TARGET/.ralph/helpers/close-issue.sh" 41 <"$SCENARIO_DIR/close.md"
+gh issue comment 41 --body-file "$SCENARIO_DIR/close.md"
+gh issue close 41
 assert_json "$RALPH_TEST_STATE" '.[0].issues[] | select(.number == 41) | .state == "CLOSED" and (.comments | length) == 2'
 assert_json "$RALPH_TEST_EVENTS" '
   map(.tool) == ["opencode", "git-push", "gh", "gh"] and

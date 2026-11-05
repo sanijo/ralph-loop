@@ -109,6 +109,7 @@ gitignore_block='### Ralph Loop managed block
 .ralph/logs/
 .ralph/tmp/
 .ralph/cache/
+.ralph/worktrees/
 ### End Ralph Loop managed block'
 
 if [ -f "$gitignore" ] && grep -Fq '### Ralph Loop managed block' "$gitignore"; then
