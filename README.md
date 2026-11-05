@@ -30,14 +30,27 @@ The runner loads committed `.ralph/config`, overlays ignored `.ralph/.env`, then
 ```bash
 .ralph/ralph.sh
 .ralph/ralph.sh --max-iterations 3
+.ralph/ralph.sh --prd 123
+.ralph/ralph.sh --issue 124
 .ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant high
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
 ```
 
+### Issue selection
+
+An issue is **eligible** when it is open, has the ready label, has none of the excluded labels (`needs-triage`, `needs-info`, `ready-for-human`, `wontfix`), is not a PRD, and all its blockers are closed.
+
+- **Blockers** come from GitHub's native "blocked by" dependencies. Only when an issue has none does the runner read the body's `## Blocked by` section (`#123` or issue URLs). Unreadable blockers count as unresolved.
+- **PRDs are never selected**, whatever their labels: an issue with any native sub-issue (open or closed) is a PRD. Without native sub-issue links, an issue named in another ready issue's `## Parent` section is also a PRD. A text-only PRD stops being recognized once no ready issue references it, so remove the ready label from PRDs or use native sub-issues.
+- **Workstreams**: the parent PRD comes from GitHub's native parent link first, then the body's `## Parent` section. Issues without a parent form the standalone workstream on `ralph/issues`.
+- **Order**: `--prd N` restricts selection to issues under PRD `N`, `--issue N` to that one issue. Among eligible issues, a workstream already in progress (an existing `.ralph/worktrees/<slug>` or an open PR from `ralph/<slug>`) wins; then the lowest issue number.
+- **BLOCKED**: when ready issues remain but none is eligible, the runner exits `BLOCKED` with each issue's reason and starts no provider. Targeting an ineligible issue with `--issue` explains why the same way. A targeted issue that completes ends the run `COMPLETE`.
+- **Labels**: set `RALPH_LABEL_READY_FOR_AGENT`, `RALPH_LABEL_NEEDS_TRIAGE`, `RALPH_LABEL_NEEDS_INFO`, `RALPH_LABEL_READY_FOR_HUMAN` and `RALPH_LABEL_WONTFIX` in `.ralph/config` when the tracker uses different strings. The canonical names are the defaults.
+
 ### Runner-owned workflow
 
-The runner selects the lowest-numbered open issue labeled `ready-for-agent`. It fetches the issue and comments, resolving its parent PRD from GitHub's native parent link first, then the body's `## Parent` section (`#123` or an issue URL). Standalone issues use `ralph/issues`.
+The runner fetches the selected issue and its comments.
 
 For a PRD, the runner uses `ralph/<prd-title-slug>` in `.ralph/worktrees/<slug>`. It fetches `origin` before each iteration, reuses a local workstream branch/worktree, or creates the branch from the remote default branch. The main checkout's branch, index and project files are left unchanged; ignored runner state is written under `.ralph/`.
 
@@ -45,9 +58,9 @@ The provider runs in that worktree with the short canonical prompt, issue body/c
 
 The runner requires a successful provider exit, new commits descending from the pre-session head, the expected branch, a clean worktree and no blocker report. It independently runs the verify command. Only then does it push the branch, post one Markdown comment with commit subjects, commit URL and verify result, and close the issue. **Issues close on push, before merge**; abandoned workstreams need their issues reopened manually.
 
-Provider output is not a completion signal. A run with no open ready issues returns `COMPLETE` without starting a provider. Current exit codes: `0` complete, `1` iteration limit, `2` usage error, `3` iteration failure, `4` configuration/precondition error. Any iteration failure currently stops without publishing that iteration; local changes remain for inspection. Provider/verify logs are under `.ralph/logs/`.
+Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider. Current exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` iteration or tracker-query failure, `4` configuration/precondition error, `5` blocked. Any iteration failure currently stops without publishing that iteration; local changes remain for inspection. Provider/verify logs are under `.ralph/logs/`.
 
-This is the v2 tracer-bullet slice, not the complete v2 workflow. Full blocker/excluded-label selection, PR creation, remote-only branch resume, locking, failure recovery, and dry-run/interactive runner modes are deferred. Until selection is extended, label only implementation issues that are safe to run, not parent PRDs or blocked issues. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
+This is not yet the complete v2 workflow. PR creation, remote-only branch resume, locking, failure recovery, and dry-run/interactive runner modes are deferred. The old prompt-level runner dry-run has been removed; only the **installer** currently supports `--dry-run`.
 
 ### Providers and approval
 
@@ -82,6 +95,6 @@ bash scripts/verify.sh
 git diff --check
 ```
 
-Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, worktree isolation, verification failures, and push-before-close ordering. See [`tests/README.md`](tests/README.md).
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, idempotency, provider arguments, issue selection, worktree isolation, verification failures, and push-before-close ordering. See [`tests/README.md`](tests/README.md).
 
 `.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

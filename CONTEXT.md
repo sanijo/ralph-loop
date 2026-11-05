@@ -15,7 +15,7 @@ This repository is the source project, not an installed target project. Root-lev
 - **Installer**: `scripts/install.sh`, a POSIX shell script that installs the template payload, appends the Ralph-managed `.gitignore` block (including `.ralph/worktrees/` for new blocks), skips conflicting files unless `--force` is used, and supports `--dry-run`. Existing ignore blocks are left intact in this slice.
 - **Verifier**: `scripts/verify.sh`, a Bash script that syntax-checks shell files, installs the template into temporary Git repositories, checks ignored local paths, verifies runner argument behavior, and confirms repeated installs are idempotent.
 - **Runner**: `.ralph/ralph.sh` in an installed target. It runs one or more Ralph iterations through the selected provider adapter.
-- **Ralph iteration**: One runner-selected issue implemented by an agent in its workstream worktree, followed by runner verification and publishing. A run with no open ready issues finishes without an agent session.
+- **Ralph iteration**: One runner-selected issue implemented by an agent in its workstream worktree, followed by runner verification and publishing. A run with no eligible issue finishes `COMPLETE` (nothing ready remains) or `BLOCKED` (ready issues remain, none eligible) without an agent session.
 - **Provider**: The local agent CLI used by the runner. Supported provider names are `opencode`, `claude`, and `codex`; OpenCode is the default.
 - **Provider bridge**: A small target-facing instruction file that points a provider at the canonical instructions, such as `.opencode/agents/ralph.md` or `CLAUDE.md`.
 - **Agent prompt**: `.ralph/prompt.md`, the canonical Ralph iteration contract installed into targets.
@@ -24,8 +24,10 @@ This repository is the source project, not an installed target project. Root-lev
 - **Verify command**: Required `RALPH_VERIFY_COMMAND`, run by the runner in the worktree before publishing.
 - **Notification helper**: `.ralph/helpers/notify.sh`, the best-effort notification helper. Telegram is the currently documented backend.
 - **Issue**: A tracked unit of work in GitHub Issues for `sanijo/ralph-loop`.
-- **PRD**: A product requirements issue that can define or group implementation issues.
-- **Implementation issue**: A concrete, independently grabbable GitHub issue that Ralph may solve when it is open, ready, and unblocked.
+- **PRD**: A product requirements issue that can define or group implementation issues. An issue with any native sub-issue, or (without native links) named in another ready issue's `## Parent` section, is a PRD and is never selected.
+- **Implementation issue**: A concrete, independently grabbable GitHub issue that Ralph may solve when it is eligible.
+- **Eligible issue**: An open, non-PRD issue with the ready label, none of the excluded labels (`needs-triage`, `needs-info`, `ready-for-human`, `wontfix` by default), and only closed blockers.
+- **Blocker**: An issue that must close first. Native GitHub "blocked by" dependencies are used when present; otherwise references in the body's `## Blocked by` section.
 - **Triage label**: A tracker label mapped from the canonical roles `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`.
 - **ADR**: An architectural decision record under `docs/adr/`, used when a technical choice should be preserved or revisited explicitly.
 

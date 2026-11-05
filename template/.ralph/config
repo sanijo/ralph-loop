@@ -12,6 +12,13 @@ RALPH_VERIFY_COMMAND=
 # .ralph/ralph.sh --model openai/gpt-5.5 --variant high
 # Override these defaults in .ralph/.env or with CLI flags to change model selection.
 
+# Triage label strings used for issue selection. Defaults are the canonical names.
+# RALPH_LABEL_READY_FOR_AGENT=ready-for-agent
+# RALPH_LABEL_NEEDS_TRIAGE=needs-triage
+# RALPH_LABEL_NEEDS_INFO=needs-info
+# RALPH_LABEL_READY_FOR_HUMAN=ready-for-human
+# RALPH_LABEL_WONTFIX=wontfix
+
 # Optional provider overrides. Keep local-only changes in .ralph/.env.
 # RALPH_OPENCODE_BIN=opencode
 # RALPH_OPENCODE_ARGS=

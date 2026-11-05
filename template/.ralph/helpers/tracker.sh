@@ -12,32 +12,72 @@ tracker_init() {
 }
 
 tracker_ready_issues() {
-  gh issue list --state open --label ready-for-agent --limit 10000 --json number,title,body
+  gh issue list --state open --label "$1" --limit 10000 --json number,title,body,labels
 }
 
 tracker_issue() {
   gh issue view "$1" --comments --json number,title,body,comments
 }
 
-tracker_parent() {
-  local issue="$1" parent error_file="$2" number
-  if parent="$(gh api "repos/$TRACKER_REPO/issues/$(jq -r '.number' <<<"$issue")/parent" 2>"$error_file")"; then
-    jq -er '.number' <<<"$parent"
-    return
-  fi
+tracker_issue_brief() {
+  gh issue view "$1" --json number,title,state,labels,body
+}
+
+tracker_issue_state() {
+  gh issue view "$1" --json state --jq '.state'
+}
+
+# Prints jq output for a native issue relation. A missing relation (404) prints nothing.
+tracker_relation() {
+  local endpoint="$1" query="$2" error_file status=0
+  error_file="$(mktemp)"
+  gh api "repos/$TRACKER_REPO/issues/$endpoint" --paginate --jq "$query" 2>"$error_file" || status=$?
   # A missing native relation is expected. Authentication/network errors are not.
-  if ! grep -q '404' "$error_file"; then
+  if [[ "$status" -ne 0 ]] && ! grep -q '404' "$error_file"; then
     cat "$error_file" >&2
+    rm -f "$error_file"
     return 1
   fi
-  number="$(jq -r '.body // ""' <<<"$issue" | awk '
-    tolower($0) ~ /^##[ \t]+parent[ \t\r]*$/ { in_parent=1; next }
-    /^##[ \t]/ { in_parent=0 }
-    in_parent { print }
-  ')"
+  rm -f "$error_file"
+}
+
+# Prints issue numbers referenced in a body's "## <name>" section (case-insensitive).
+tracker_section_refs() {
+  printf '%s\n' "$1" | awk -v name="$2" '
+    /^##[ \t]/ {
+      header = tolower($0)
+      sub(/^##[ \t]+/, "", header)
+      sub(/[ \t\r]+$/, "", header)
+      in_section = (header == name)
+      next
+    }
+    in_section { print }
+  ' | { grep -oE '(#|/issues/)[0-9]+' || true; } | grep -oE '[0-9]+$' || true
+}
+
+tracker_parent() {
+  local issue="$1" number parent
+  number="$(jq -r '.number' <<<"$issue")"
+  parent="$(tracker_relation "$number/parent" '.number')" || return 1
+  if [[ -n "$parent" ]]; then
+    printf '%s\n' "$parent"
+    return
+  fi
   # Restrict fallback references to the Parent section, never unrelated body links.
-  number="$(printf '%s\n' "$number" | sed -nE 's/.*(#|\/issues\/)([0-9]+).*/\2/p' | head -n 1)"
-  printf '%s\n' "$number"
+  tracker_section_refs "$(jq -r '.body // ""' <<<"$issue")" parent | sed -n 1p
+}
+
+tracker_sub_issues() {
+  tracker_relation "$1/sub_issues" '.[].number'
+}
+
+# Prints "number STATE" for each native blocker.
+tracker_native_blockers() {
+  tracker_relation "$1/dependencies/blocked_by" '.[] | "\(.number) \(.state | ascii_upcase)"'
+}
+
+tracker_open_pr_heads() {
+  gh pr list --state open --limit 1000 --json headRefName --jq '.[].headRefName'
 }
 
 tracker_close() {

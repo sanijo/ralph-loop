@@ -7,14 +7,40 @@ Authenticate `gh`; install Bash, Git, jq and your provider CLI before running.
 
 ```bash
 .ralph/ralph.sh --max-iterations 3
+.ralph/ralph.sh --prd 123
+.ralph/ralph.sh --issue 124
 .ralph/ralph.sh --provider claude --model your-model
 .ralph/ralph.sh --provider codex --no-auto-approve
 ```
 
-The runner selects the lowest-numbered open `ready-for-agent` issue, fetching its
-body/comments and resolving its PRD from a native parent link or `## Parent`
-section. It fetches `origin`, then creates or reuses a `ralph/<prd-title-slug>`
-branch in `.ralph/worktrees/<slug>`. Standalone issues use `ralph/issues`.
+## Issue selection
+
+An issue is eligible when it is open, labeled `ready-for-agent`, has none of
+`needs-triage`, `needs-info`, `ready-for-human` or `wontfix`, is not a PRD, and
+all its blockers are closed. Blockers are native GitHub "blocked by" links, or,
+when there are none, references in the body's `## Blocked by` section.
+
+An issue with any native sub-issue (open or closed) is a PRD and is never
+selected. Without native sub-issue links, an issue named in another ready
+issue's `## Parent` section is also a PRD; it stops being recognized once no
+ready issue references it, so keep the ready label off PRDs.
+
+`--prd N` restricts selection to issues under PRD `N`; `--issue N` to one issue.
+A workstream already in progress (existing worktree or open `ralph/<slug>` PR)
+is preferred, then the lowest issue number. When ready issues remain but none is
+eligible, the runner exits `BLOCKED` with each issue's reason and starts no
+provider; an ineligible `--issue` target is explained the same way.
+
+Label strings are configurable with `RALPH_LABEL_READY_FOR_AGENT`,
+`RALPH_LABEL_NEEDS_TRIAGE`, `RALPH_LABEL_NEEDS_INFO`,
+`RALPH_LABEL_READY_FOR_HUMAN` and `RALPH_LABEL_WONTFIX` in `.ralph/config`.
+
+## Workflow
+
+The runner fetches the selected issue's body/comments and resolves its PRD from a
+native parent link or `## Parent` section. It fetches `origin`, then creates or
+reuses a `ralph/<prd-title-slug>` branch in `.ralph/worktrees/<slug>`.
+Standalone issues use `ralph/issues`.
 New branches start at the remote default branch, not the current checkout.
 The main checkout's branch, index and project files stay unchanged.
 
@@ -24,14 +50,14 @@ verification before pushing. It then posts one Markdown comment with commit
 subjects, commit URL and verify result and closes the issue. Issues close on push,
 before merge; reopen them manually if a workstream is abandoned.
 
-No open ready issues means `COMPLETE` without invoking a provider. Exit codes:
-`0` complete, `1` iteration limit, `2` usage, `3` iteration failure, `4` preconditions.
+No eligible open ready issues means `COMPLETE` without invoking a provider. Exit
+codes: `0` complete, `1` iteration limit, `2` usage, `3` iteration or tracker
+failure, `4` preconditions, `5` blocked.
 Failures currently stop without publishing that iteration; local work remains
 for inspection. Logs are under `.ralph/logs/`.
 
-This slice does not yet enforce blockers/excluded labels, create PRs, recover failed
-iterations, resume remote-only branches, or support runner dry-run/interactive modes.
-Label only safe implementation issues as ready, not PRDs or blocked issues.
+This version does not yet create PRs, recover failed iterations, resume
+remote-only branches, or support runner dry-run/interactive modes.
 
 ## Provider configuration
 

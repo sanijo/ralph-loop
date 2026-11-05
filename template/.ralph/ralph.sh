@@ -12,6 +12,8 @@ Options:
   --model MODEL             Optional provider model override.
   --variant VARIANT         Optional provider model variant. OpenCode only.
   --max-iterations COUNT    Maximum iterations to run. Default: 1.
+  --prd NUMBER              Only select issues whose parent PRD is NUMBER.
+  --issue NUMBER            Only select issue NUMBER; explain why if ineligible.
   --no-auto-approve         Disable provider auto-approval flags.
   -h, --help                Show this help.
 
@@ -50,6 +52,15 @@ variant="${RALPH_VARIANT:-}"
 max_iterations="${RALPH_MAX_ITERATIONS:-1}"
 auto_approve=1
 verify_command="${RALPH_VERIFY_COMMAND:-}"
+target_prd=''
+target_issue=''
+ready_label="${RALPH_LABEL_READY_FOR_AGENT:-ready-for-agent}"
+excluded_labels=(
+  "${RALPH_LABEL_NEEDS_TRIAGE:-needs-triage}"
+  "${RALPH_LABEL_NEEDS_INFO:-needs-info}"
+  "${RALPH_LABEL_READY_FOR_HUMAN:-ready-for-human}"
+  "${RALPH_LABEL_WONTFIX:-wontfix}"
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -89,6 +100,19 @@ while [[ $# -gt 0 ]]; do
       max_iterations="${1#*=}"
       shift
       ;;
+    --prd|--issue)
+      [[ $# -ge 2 ]] || { printf 'Error: %s requires a value\n' "$1" >&2; exit 2; }
+      if [[ "$1" == --prd ]]; then target_prd="$2"; else target_issue="$2"; fi
+      shift 2
+      ;;
+    --prd=*)
+      target_prd="${1#*=}"
+      shift
+      ;;
+    --issue=*)
+      target_issue="${1#*=}"
+      shift
+      ;;
     --no-auto-approve)
       auto_approve=0
       shift
@@ -109,6 +133,13 @@ if [[ ! "$max_iterations" =~ ^[1-9][0-9]*$ ]]; then
   printf 'Error: --max-iterations must be a positive integer\n' >&2
   exit 2
 fi
+
+for target in "$target_prd" "$target_issue"; do
+  if [[ -n "$target" && ! "$target" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'Error: --prd and --issue must be positive issue numbers\n' >&2
+    exit 2
+  fi
+done
 
 if [[ ! -f "$PROMPT_FILE" ]]; then
   printf 'Error: missing prompt file: %s\n' "$PROMPT_FILE" >&2
@@ -263,9 +294,15 @@ if [[ -n "$variant" ]]; then
 fi
 
 complete_run() {
-  printf 'COMPLETE: no open ready-for-agent issues remain.\n'
+  printf 'COMPLETE: %s\n' "${1:-no eligible open $ready_label issues remain.}"
   notify_ralph 'COMPLETE' 'All ready issues are complete.' 0
   exit 0
+}
+
+blocked_run() {
+  printf 'BLOCKED: no eligible issue:\n%s\n' "$blocked_reasons"
+  notify_ralph 'BLOCKED' "No eligible issue. $blocked_reasons" 5
+  exit 5
 }
 
 fail_iteration() {
@@ -274,19 +311,125 @@ fail_iteration() {
   exit 3
 }
 
+fail_selection() {
+  printf 'Error: issue selection failed while %s\n' "$1" >&2
+  notify_ralph 'ERROR' "Issue selection failed while $1." 3
+  exit 3
+}
+
+# Prints the workstream slug for a parent PRD number, or "issues" when standalone.
+workstream_slug() {
+  local parent="$1" cache="$RUN_TMP/prd-$1.json" slug
+  [[ -n "$parent" ]] || { printf 'issues\n'; return; }
+  [[ -f "$cache" ]] || tracker_issue_brief "$parent" >"$cache" || { rm -f "$cache"; return 1; }
+  slug="$(jq -r '.title | ascii_downcase | sub("^prd[: ]*"; "") | gsub("[^a-z0-9]+"; "-") | sub("^-"; "") | sub("-$"; "")' "$cache")"
+  printf '%s\n' "${slug:-prd-$parent}"
+}
+
+# Sets candidate_reason for an issue JSON: "prd", an ineligibility reason, or empty
+# when eligible. Also sets candidate_parent. Uses text_parents from select_issue.
+evaluate_candidate() {
+  local issue="$1" n label blocker state blockers sub_issues
+  n="$(jq -r '.number' <<<"$issue")"
+  candidate_reason='' candidate_parent=''
+  # Any native sub-issue (open or closed), or a ready issue naming it as Parent, marks a PRD.
+  sub_issues="$(tracker_sub_issues "$n")" || fail_selection "reading sub-issues of #$n"
+  [[ -z "$sub_issues" ]] || { candidate_reason=prd; return; }
+  if grep -qx "$n" <<<"$text_parents"; then candidate_reason=prd; return; fi
+  # Only a targeted issue can fail these; listed issues are open and ready.
+  if [[ "$(jq -r '.state // "OPEN"' <<<"$issue")" != OPEN ]]; then
+    candidate_reason='issue is closed'
+    return
+  fi
+  if ! jq -e --arg label "$ready_label" 'any(.labels[]?; .name == $label)' <<<"$issue" >/dev/null; then
+    candidate_reason="missing label $ready_label"
+    return
+  fi
+  candidate_parent="$(tracker_parent "$issue")" || fail_selection "reading the parent of #$n"
+  if [[ -n "$target_prd" && "$candidate_parent" != "$target_prd" ]]; then
+    candidate_reason="not in PRD #$target_prd"
+    return
+  fi
+  for label in "${excluded_labels[@]}"; do
+    if jq -e --arg label "$label" 'any(.labels[]?; .name == $label)' <<<"$issue" >/dev/null; then
+      candidate_reason="excluded label $label"
+      return
+    fi
+  done
+  blockers="$(tracker_native_blockers "$n")" || fail_selection "reading blockers of #$n"
+  if [[ -z "$blockers" ]]; then
+    for blocker in $(tracker_section_refs "$(jq -r '.body // ""' <<<"$issue")" 'blocked by'); do
+      state="$(tracker_issue_state "$blocker")" || state=UNREADABLE
+      blockers+="$blocker $state"$'\n'
+    done
+  fi
+  while read -r blocker state; do
+    [[ -n "$blocker" && "$state" != CLOSED ]] || continue
+    if [[ "$state" == OPEN ]]; then
+      candidate_reason+="${candidate_reason:+, }blocked by open #$blocker"
+    else
+      candidate_reason+="${candidate_reason:+, }blocker #$blocker could not be read"
+    fi
+  done <<<"$blockers"
+}
+
+# Chooses the next issue. Sets number, parent and slug, or exits COMPLETE/BLOCKED.
+select_issue() {
+  local ready candidates candidate n in_progress first='' first_parent='' pr_heads candidate_slug
+  ready="$(tracker_ready_issues "$ready_label")" || fail_selection 'listing ready issues'
+  # Text Parent references of ready issues mark PRDs that lack native sub-issue links.
+  text_parents=''
+  while IFS= read -r candidate; do
+    text_parents+="$(tracker_section_refs "$(jq -r '.body // ""' <<<"$candidate")" parent | sed -n 1p)"$'\n'
+  done < <(jq -c '.[]' <<<"$ready")
+  blocked_reasons=''
+  if [[ -n "$target_issue" ]]; then
+    candidates="$(tracker_issue_brief "$target_issue" | jq -c .)" || {
+      blocked_reasons="- #$target_issue: issue could not be read"
+      blocked_run
+    }
+  else
+    candidates="$(jq -c 'sort_by(.number) | .[]' <<<"$ready")"
+  fi
+  pr_heads="$(tracker_open_pr_heads)" || fail_selection 'listing open pull requests'
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    evaluate_candidate "$candidate"
+    n="$(jq -r '.number' <<<"$candidate")"
+    if [[ "$candidate_reason" == prd ]]; then
+      [[ -z "$target_issue" ]] || { blocked_reasons="- #$n: issue is a PRD"; blocked_run; }
+      continue
+    fi
+    if [[ -n "$candidate_reason" ]]; then
+      # Issues outside a --prd restriction are out of scope, not blocked.
+      [[ -n "$target_issue" || "$candidate_reason" != "not in PRD #$target_prd" ]] || continue
+      blocked_reasons+="${blocked_reasons:+$'\n'}- #$n: $candidate_reason"
+      continue
+    fi
+    candidate_slug="$(workstream_slug "$candidate_parent")" || fail_selection "reading PRD #$candidate_parent"
+    in_progress=0
+    if [[ -e "$SCRIPT_DIR/worktrees/$candidate_slug" ]] || grep -qxF "ralph/$candidate_slug" <<<"$pr_heads"; then
+      in_progress=1
+    fi
+    if [[ "$in_progress" -eq 1 || -z "$first" ]]; then
+      first="$n" first_parent="$candidate_parent" slug="$candidate_slug"
+      [[ "$in_progress" -eq 0 ]] || break
+    fi
+  done <<<"$candidates"
+  if [[ -n "$first" ]]; then
+    number="$first" parent="$first_parent"
+    return
+  fi
+  [[ -n "$blocked_reasons" ]] || complete_run
+  blocked_run
+}
+
 for ((iteration = 1; iteration <= max_iterations; iteration++)); do
-  issues="$(tracker_ready_issues)"
-  number="$(jq -r 'sort_by(.number) | .[0].number // empty' <<<"$issues")"
-  [[ -n "$number" ]] || complete_run
+  select_issue
   issue="$(tracker_issue "$number")"
-  parent="$(tracker_parent "$issue" "$RUN_TMP/parent-error")"
   prd='none (standalone)'
-  slug=issues
   if [[ -n "$parent" ]]; then
-    parent_issue="$(tracker_issue "$parent")"
-    prd="#$parent: $(jq -r '.title' <<<"$parent_issue")"
-    slug="$(jq -r '.title | ascii_downcase | sub("^prd[: ]*"; "") | gsub("[^a-z0-9]+"; "-") | sub("^-"; "") | sub("-$"; "")' <<<"$parent_issue")"
-    [[ -n "$slug" ]] || slug="prd-$parent"
+    prd="#$parent: $(jq -r '.title' "$RUN_TMP/prd-$parent.json")"
   fi
   branch="ralph/$slug"
   worktree="$SCRIPT_DIR/worktrees/$slug"
@@ -369,10 +512,11 @@ $(jq -r '.comments[]? | .body' <<<"$issue")"
   if [[ "${RALPH_NOTIFY_ON_ITERATION:-1}" == '1' ]]; then
     notify_ralph 'ITERATION_COMPLETE' "Iteration $iteration completed successfully." 0 "$status" "$iteration"
   fi
+  [[ -z "$target_issue" ]] || complete_run "targeted issue #$target_issue is complete."
 done
 
-issues="$(tracker_ready_issues)"
-[[ "$(jq 'length' <<<"$issues")" -gt 0 ]] || complete_run
+# Exits COMPLETE or BLOCKED when no eligible issue remains.
+select_issue
 printf 'MAX_ITERATIONS: finished %s iteration(s). Logs are in %s\n' "$max_iterations" "$LOG_DIR"
 notify_ralph 'MAX_ITERATIONS' "Reached max iterations ($max_iterations)." 1 'unknown' "$max_iterations"
 exit 1
