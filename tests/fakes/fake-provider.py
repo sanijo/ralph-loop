@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Record a provider invocation and execute a scenario-owned action script."""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from support import load, record
+
+
+PROVIDERS = ("opencode", "claude", "codex")
+
+record(Path(sys.argv[0]).name)
+script = load(os.environ["RALPH_TEST_PROVIDER_SCRIPT"])
+if isinstance(script, dict) and "sessions" in script:
+    # The Nth provider invocation of a scenario runs sessions[N-1]; later ones do nothing.
+    events = Path(os.environ["RALPH_TEST_EVENTS"]).read_text().splitlines()
+    session = sum(json.loads(line)["tool"] in PROVIDERS for line in events) - 1
+    sessions = script["sessions"]
+    script = sessions[session] if session < len(sessions) else {"action": "noop"}
+# A script is one step or a list of steps, e.g. commit then leave dirty files.
+steps = script if isinstance(script, list) else [script]
+for step in steps:
+    action = step["action"]
+    if action in ("commit", "dirty"):
+        path = Path(step.get("file", "implementation.txt"))
+        # Appending lets one script commit again on later iterations.
+        with path.open("a" if step.get("append") else "w") as handle:
+            handle.write(step.get("content", "implemented\n"))
+        if action == "commit":
+            subprocess.run(["git", "add", "--", step.get("file", "implementation.txt")],
+                           check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m",
+                            step.get("message", "feat: implement fixture issue")], check=True)
+    elif action == "blocker":
+        # Prefer an explicit fixture path; later runner scenarios can use its env path.
+        path = step.get("path") or os.environ["RALPH_BLOCKER_FILE"]
+        Path(path).write_text(step.get("reason", "Fixture needs more information\n"))
+    elif action == "stdin":
+        # Shows whether the session is attached to the runner's stdin or /dev/null.
+        Path(step["file"]).write_text(sys.stdin.read())
+    elif action == "hang":
+        time.sleep(step.get("seconds", 60))
+    elif action == "exit":
+        print(step.get("output", "Fixture provider error"), flush=True)
+        sys.exit(step.get("code", 1))
+    elif action != "noop":
+        sys.exit(f"Unsupported fake provider action: {action}")
+    if "output" in step:
+        print(step["output"], flush=True)
+# Claude's headless structured output ends with a result event carrying turns and cost.
+if Path(sys.argv[0]).name == "claude" and "--output-format" in sys.argv:
+    if sys.argv[sys.argv.index("--output-format") + 1] == "stream-json":
+        print(json.dumps({"type": "result", "subtype": "success", "num_turns": 3,
+                          "total_cost_usd": 0.0123}), flush=True)

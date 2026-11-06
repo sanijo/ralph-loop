@@ -1,5 +1,6 @@
 # Claude Bridge
 
-Follow the canonical project instructions in `AGENTS.md`.
+@AGENTS.md
 
-When running Ralph work, also follow `.ralph/prompt.md`. This file is only a bridge so Claude Code can discover the canonical instructions; do not duplicate Ralph's full prompt here.
+Claude Code imports the canonical project instructions above. Keep them in
+`AGENTS.md` rather than repeating them here.

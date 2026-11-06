@@ -1,207 +1,222 @@
 # Ralph Loop
 
-Ralph Loop is a standalone reusable project template for installing an autonomous issue-solving loop into a target Git repository.
+Ralph Loop is a reusable template for installing an autonomous issue-solving runner into a Git repository. This is the source repository: `template/` is copied into targets by `scripts/install.sh`; root files document and verify the tool.
 
-The project is split into two areas:
+## Workflow
 
-- `template/` contains files copied into target repositories by the installer.
-- Source-repository files at the root document and verify the reusable `ralph-loop` project itself.
+1. **Plan.** Use the planning skills from [mattpocock/skills](https://github.com/mattpocock/skills). `grill-me` stress-tests the idea. `to-spec` writes it up as a PRD issue. `to-tickets` splits the PRD into implementation issues. Make them native sub-issues of the PRD, with "blocked by" links between them, and give the ones that are ready the `ready-for-agent` label. In these skills a "spec" is a PRD and a "ticket" is an implementation issue.
+2. **Run.** `.ralph/ralph.sh` picks the next eligible issue. It starts the provider for that one issue, then checks the result and runs your verify command. If everything passes, it pushes the commits and closes the issue. Otherwise it records a failure. See [Run](#run).
+3. **Worktrees.** Each PRD's work happens on one branch, `ralph/<prd-title-slug>`, in its own worktree, `.ralph/worktrees/<slug>`. Your main checkout is never touched. See [Worktrees and branches](#worktrees-and-branches).
+4. **Review.** Each PRD gets one PR. The first resolved issue opens it as a draft, and later issues are added to it. When no open ready issues remain under the PRD, the PR is marked ready for review. Review it and merge it; merging closes the PRD. Then run `.ralph/ralph.sh --cleanup` to remove the finished worktree. See [Workstream pull requests](#workstream-pull-requests).
 
-## Install Into A Target Repository
+The [v2 decisions](#v2-decisions) section summarizes what changed from v1. [`docs/adr/`](docs/adr/) records the two main design decisions.
 
-Run the installer from this source repository and pass the path to the target Git repository:
-
-```bash
-bash scripts/install.sh /path/to/target-repo
-```
-
-The target must already be a Git worktree. The installer copies the managed template payload into the target root and appends a Ralph-managed block to the target `.gitignore`.
-
-Installed files include:
-
-- `.ralph/ralph.sh`: the iteration runner.
-- `.ralph/prompt.md`: the canonical Ralph agent contract.
-- `.ralph/config`: committed default runner configuration.
-- `.ralph/.env.example`: local secret and notification example settings.
-- `.ralph/helpers/close-issue.sh`: safe close helper used by agents.
-- `.ralph/helpers/notify.sh`: optional notification helper.
-- `.ralph/helpers/telegram-chat-id.sh`: Telegram chat ID discovery helper.
-- `.ralph/progress.md`: append-only progress log.
-- `.opencode/agents/ralph.md`: OpenCode bridge.
-- `CLAUDE.md`: Claude Code bridge.
-- `AGENTS.md`: target repository agent instructions stub.
-- `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`: tracker conventions for agents.
-- `README.md`: target-local Ralph usage notes.
-
-Ignored local paths added to `.gitignore` are `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, and `.ralph/cache/`.
-
-## Dry-Run, Force, And Updates
-
-Preview installer effects without writing files:
+## Install and update
 
 ```bash
 bash scripts/install.sh --dry-run /path/to/target-repo
+bash scripts/install.sh /path/to/target-repo
 ```
 
-`--dry-run` prints each file that would be created, skipped, overwritten, or each `.gitignore` block change that would be made.
+The target must already be a Git worktree. The installer copies two kinds of files:
 
-By default, the installer refuses to overwrite a managed file when the target already has different content. Use `--force` only when you intentionally want the template copy to replace the target copy:
+- **Managed files** belong to Ralph: the runner, prompt, helpers, the OpenCode bridge `.opencode/agents/ralph.md`, Ralph Claude settings, `.ralph/.env.example` and the usage notes in `.ralph/README.md`. Identical files are skipped; conflicting files are skipped unless `--force` is requested, so `--force` is how you update Ralph.
+- **Seed files** belong to the target once installed: `AGENTS.md`, `CLAUDE.md`, `.ralph/config` and `docs/agents/`. They are created only when missing and never overwritten, even with `--force`. `CLAUDE.md` is a bridge that imports `AGENTS.md` (`@AGENTS.md`).
 
-```bash
-bash scripts/install.sh --force /path/to/target-repo
-```
+The installer never creates or overwrites a target-root `README.md`. It writes a Ralph-managed `.gitignore` block covering `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`; an existing block, such as v1's, is rewritten in place between its markers and lines outside them are kept. A block missing its end marker is reported and left alone. Repeated installs are idempotent, and installer dry-run prints planned changes and writes nothing. The installer never deletes files; see [v2 decisions](#v2-decisions) when upgrading from v1.
 
-Repeated installs are idempotent when installed files have not changed. To update an existing target after this source template changes, rerun the installer. Identical files are skipped, missing files are created, and changed managed files require `--force`.
+## Configure a target
 
-## Target Setup
+Before unattended use:
 
-Before running Ralph in a target repository, replace the installed stubs with repository-specific instructions:
+1. Replace the `AGENTS.md` verification TODOs with exact repository checks.
+2. Document GitHub Issues and the label vocabulary in `docs/agents/`.
+3. Set the required `RALPH_VERIFY_COMMAND` in `.ralph/config`, for example your project's documented test command. It runs from the workstream worktree and must leave it clean.
+4. Commit the installation and configuration and push the default branch to `origin`.
+5. Authenticate `gh` and install your selected provider CLI. Bash, Git and jq are also required.
 
-- Document the issue tracker location and conventions in `docs/agents/issue-tracker.md`.
-- Document the exact label strings in `docs/agents/triage-labels.md`.
-- Document the exact verification commands in `AGENTS.md`.
-- Commit the installed template files and configuration before starting unattended runs.
+The runner loads committed `.ralph/config`, overlays ignored `.ralph/.env`, then applies command-line overrides. Keep tokens and local-only settings in `.ralph/.env`.
 
-Ralph expects GitHub Issues and uses the GitHub MCP for supported tracker operations when available, falling back to `gh` from inside the target clone when needed. Implementation issues must be `OPEN`, labeled with the tracker label that maps to `ready-for-agent`, derived from the relevant PRD or workstream, and not blocked by another open dependency. Issues labeled as `needs-triage`, `needs-info`, `ready-for-human`, or `wontfix` are not solver work.
-
-## Running Ralph
-
-From an installed target repository:
+## Run
 
 ```bash
 .ralph/ralph.sh
-```
-
-Useful options:
-
-```bash
-.ralph/ralph.sh --dry-run
 .ralph/ralph.sh --max-iterations 3
-.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --variant high
+.ralph/ralph.sh --prd 123
+.ralph/ralph.sh --issue 124
+.ralph/ralph.sh --provider opencode --model openai/gpt-5.5 --effort high
 .ralph/ralph.sh --provider claude --no-auto-approve
 .ralph/ralph.sh --provider codex
+.ralph/ralph.sh --dry-run
+.ralph/ralph.sh --interactive --provider claude
+.ralph/ralph.sh --cleanup --dry-run
+.ralph/ralph.sh --cleanup
 ```
 
-The runner loads committed defaults from `.ralph/config`, then overlays ignored local settings from `.ralph/.env` when present. Command-line options override those defaults for the current run.
+### Modes
 
-Runner dry-run mode is different from installer dry-run mode. `.ralph/ralph.sh --dry-run` injects a prompt header telling the agent not to push commits, close issues, or mutate the tracker. Provider logs are still written under ignored `.ralph/logs/` for diagnosis.
+- **Default (unattended)**: the provider runs headlessly in the workstream worktree; the runner evaluates, verifies and publishes each iteration.
+- **Dry run** (`--dry-run`): the runner selects an issue and prints it, its workstream, the worktree path (and whether it would be created or reused), the full provider command and its prompt, then exits `0`. It does not fetch, create a worktree or branch, start a provider, push, change the tracker or send notifications. Only the first iteration is reported. With nothing eligible it still exits `COMPLETE` or `BLOCKED`.
+- **Interactive** (`--interactive`): the runner prepares the worktree exactly as for an unattended run, then starts the provider's interactive session there with the same prompt and context, attached to your terminal. When you exit the session, the runner applies the normal outcome evaluation, verification, publishing and failure handling. The iteration timeout does not apply and session output is not captured in the log. Combine with `--dry-run` to preview the interactive command.
 
-## Providers And Approval
+### Issue selection
 
-OpenCode is the default provider:
+An issue is **eligible** when it is open, has the ready label, has none of the excluded labels (`needs-triage`, `needs-info`, `ready-for-human`, `wontfix`), is not a PRD, and all its blockers are closed.
 
-```bash
-RALPH_PROVIDER=opencode
+- **Blockers** come from GitHub's native "blocked by" dependencies. Only when an issue has none does the runner read the body's `## Blocked by` section (`#123` or issue URLs). Unreadable blockers count as unresolved.
+- **PRDs are never selected**, whatever their labels: an issue with any native sub-issue (open or closed) is a PRD. Without native sub-issue links, an issue named in another ready issue's `## Parent` section is also a PRD. A text-only PRD stops being recognized once no ready issue references it, so remove the ready label from PRDs or use native sub-issues.
+- **Order**: `--prd N` restricts selection to issues under PRD `N`, `--issue N` to that one issue. Among eligible issues, a workstream already in progress (an existing `.ralph/worktrees/<slug>` or an open PR from `ralph/<slug>`) wins; then the lowest issue number.
+- **BLOCKED**: when ready issues remain but none is eligible, the runner exits `BLOCKED` with each issue's reason and starts no provider. Targeting an ineligible issue with `--issue` explains why the same way. A targeted issue that completes ends the run `COMPLETE`.
+- **Labels**: set `RALPH_LABEL_READY_FOR_AGENT`, `RALPH_LABEL_NEEDS_TRIAGE`, `RALPH_LABEL_NEEDS_INFO`, `RALPH_LABEL_READY_FOR_HUMAN` and `RALPH_LABEL_WONTFIX` in `.ralph/config` when the tracker uses different strings. The canonical names are the defaults.
+
+### Runner-owned workflow
+
+The runner fetches the selected issue and its comments and prepares its workstream worktree (see [Worktrees and branches](#worktrees-and-branches)).
+
+The provider runs in that worktree with the short canonical prompt, issue body/comments, PRD reference, branch, verify command and blocker-report path. The agent implements only that issue, tests and commits locally. It must never push or access the tracker. If requirements are unsafe or incomplete it writes a reason to the blocker report.
+
+The runner requires a successful provider exit, new commits descending from the pre-session head, the expected branch, a clean worktree and no blocker report. It independently runs the verify command. Only then does it push the branch, post one Markdown comment with commit subjects, commit URL and verify result, and close the issue.
+
+Provider output is not a completion signal. A run with no eligible open ready issues returns `COMPLETE` without starting a provider.
+
+### Worktrees and branches
+
+An issue's PRD comes from GitHub's native parent link first, then the body's `## Parent` section. Each PRD has one workstream branch, `ralph/<prd-title-slug>`, checked out in `.ralph/worktrees/<slug>`. Issues without a parent share the standalone workstream, `ralph/issues`.
+
+The runner fetches `origin` before each iteration. Then it does one of four things:
+
+- reuses the existing worktree;
+- adds a worktree for an existing local branch;
+- **resumes** a branch that exists only on `origin` into a new worktree, with its commits (the branch was pushed from another machine, or cleanup removed it locally);
+- creates the branch from the remote default branch.
+
+The main checkout's branch, index and project files are left unchanged. Ignored runner state is written under `.ralph/`.
+
+### Workstream pull requests
+
+Each workstream gets one PR from its branch to the default branch:
+
+- **First success**: after the push and issue close, the runner opens a **draft** PR. The title is the PRD title without a leading `PRD:`. The body starts with `Closes #<prd>`, so merging the PR closes the PRD, and lists the resolved issue under `## Resolved issues`.
+- **Later successes**: the runner adds the issue to the existing open PR's body. It never opens a second PR for the same branch.
+- **Ready for review**: after a success, the runner checks the PRD's open ready implementation issues (blocked ones included). When none remain, it marks the draft PR ready for review.
+- **Standalone workstream**: `ralph/issues` gets a PR titled `Ralph: standalone issues`, without a closing reference.
+
+**Issues close on push, before merge.** Closing at push time keeps issue selection simple: blockers clear as soon as verified work is on the branch, so later issues in the PRD can build on it. The trade-off is that a closed issue does not mean the work is on the default branch. Review and merge the PR to deliver it. If you abandon a workstream, close its PR and reopen its issues manually.
+
+### Logs and run summary
+
+Each run gets its own timestamped log folder, `.ralph/logs/<YYYYMMDD-HHMMSS>/` (with a `-2`, `-3`, ... suffix when two runs start in the same second). Each Ralph iteration writes provider and verify output to `iteration-<n>-issue-<number>.log` in that folder. Logs are never deleted automatically; prune old folders yourself. Dry runs create no folder.
+
+At the end of every run, including errors and interrupts, the runner prints a short summary and saves it as `summary.txt` in the run folder:
+
+```text
+Ralph run summary
+Result: FINISHED_WITH_FAILURES (exit 6)
+Resolved (1):
+- #41 Working slice
+Failed (1):
+- #42: no-commit (no new commit)
+Skipped (1):
+- #43: blocked by open #44
+PR: https://github.com/owner/repo/pull/101
+Claude turns: 6
+Claude cost: $0.0246
+Logs: .ralph/logs/20261105-101500
 ```
 
-Supported provider names are `opencode`, `claude`, and `codex`. Provider binaries and extra arguments can be overridden in `.ralph/config`, `.ralph/.env`, or the process environment:
+Skipped issues are the ready issues the last selection found ineligible. The PR lines list the workstream PRs this run published to or found for a failed issue. Claude turns and cost are totals of the `result` events of this run's headless Claude sessions; other providers report neither, so the lines are omitted.
 
-```bash
-RALPH_OPENCODE_BIN=opencode
-RALPH_OPENCODE_ARGS=
-RALPH_CLAUDE_BIN=claude
-RALPH_CLAUDE_ARGS=
-RALPH_CODEX_BIN=codex
-RALPH_CODEX_ARGS=
-```
+### Iteration outcomes and failures
 
-The installed config pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_VARIANT=high` by default. When model or variant are unset, Ralph omits those provider flags and lets the provider choose its defaults. Command-line `--model` and `--variant` override config for the current run. Variant support maps to OpenCode's provider-specific `--variant` flag; Claude and Codex adapters ignore `RALPH_VARIANT`.
+Every iteration ends with one outcome:
 
-Auto-approval is enabled by default for unattended runs. OpenCode receives `--dangerously-skip-permissions`, Claude receives `--dangerously-skip-permissions`, and Codex receives `--dangerously-bypass-approvals-and-sandbox`. Use `--no-auto-approve` when you want the provider to keep its normal approval prompts or sandbox behavior.
+| Outcome | Meaning |
+| --- | --- |
+| `success` | Verified commits were pushed and the issue closed |
+| `provider-error` | The provider exited non-zero |
+| `timeout` | The provider ran longer than `RALPH_ITERATION_TIMEOUT` seconds (default `3600`, `0` disables) and its process group was stopped |
+| `no-commit` | No new commit descending from the pre-iteration head on the workstream branch (including a changed branch or rewritten history) |
+| `dirty-worktree` | Uncommitted or untracked files remain after the session |
+| `verify-failed` | The verify command failed or changed the worktree |
+| `agent-blocked` | The agent wrote a reason to the blocker-report file |
 
-Provider support is limited by the installed local CLI. Ralph checks that the selected provider binary exists before starting, but it cannot guarantee the provider supports every flag, model name, approval mode, or repository verification command. Verify a provider manually in the target environment before relying on unattended runs.
+On any failure the runner:
 
-## Branches, Progress, And Closing Issues
+1. Resets the workstream branch and worktree to the pre-iteration commit. Nothing is pushed.
+2. Posts one **failure comment** on the issue. It starts with the hidden marker `<!-- ralph-failure: <outcome> -->` and gives the outcome, the reason, the agent's blocker report, or the last 20 lines of verify output when relevant.
+3. Counts the issue's earlier marked failure comments. When this failure reaches `RALPH_MAX_FAILURES` (default `2`), it replaces the ready label with the needs-info label. An agent-reported blocker relabels immediately. Fix the issue and restore the ready label to retry it; earlier failure comments still count, so delete them to reset the count.
+4. Skips the failed issue for the rest of the run and continues with the next eligible issue. Failed iterations count towards `--max-iterations`. A failed `--issue` target ends the run.
 
-Ralph keeps autonomous implementation work off the default branch. PRD-backed issue sets use one shared workstream branch named `ralph/<prd-slug>`. Standalone ready issues without a parent PRD use `ralph/issues`. If Ralph starts on `main` or `master`, the prompt instructs the agent to create or switch to the appropriate workstream branch; if it starts on a non-main branch, it continues there.
+Exit codes: `0` complete, `1` iteration limit with eligible issues remaining, `2` usage error, `3` runner failure (tracker query, push or publishing), `4` configuration/precondition error, `5` blocked, `6` **finished with failures** (any iteration failed; takes precedence over `0`, `1` and `5`). A rejected push or a tracker error after the push stops the run with `3` and leaves the worktree for inspection.
 
-Each completed issue should produce one focused implementation commit. After verification, the agent appends a progress entry to `.ralph/progress.md`, commits that progress change when needed, pushes the workstream branch, and closes the issue with `.ralph/helpers/close-issue.sh`.
+### Single-runner lock
 
-The close helper accepts the final Markdown comment on standard input:
+Only one runner may be active per repository. Each non-dry run, and `--cleanup`, takes the lock file `.ralph/tmp/ralph.lock`, which holds the runner's PID, and removes it when it exits. A second runner exits `4` with `another Ralph runner is active in this repository` and the holder's PID. A lock whose process is no longer running (the runner was killed or the machine rebooted) is stale: the next runner reports it and replaces it. Dry runs neither take nor check the lock.
 
-```bash
-.ralph/helpers/close-issue.sh 123 <<'EOF'
-Implemented: short summary
+### Worktree cleanup
 
-Verification run:
-- command
+`.ralph/ralph.sh --cleanup` removes Ralph worktrees under `.ralph/worktrees/`, and their local branches, whose workstream PR is merged or closed, then exits `0`. `--cleanup --dry-run` only reports what it would remove. It needs neither a verify command nor a provider. It keeps a worktree, and says why, when its branch has an open PR or no PR at all, when it has uncommitted or untracked files, or when its branch has commits that no merged or closed PR's head contains. The main checkout and worktrees outside `.ralph/worktrees/` are never touched, and remote branches are not deleted. A tracker or removal error exits `3`.
 
-Implementation commit: pushed commit URL or hash
-Progress commit: pushed commit URL or hash, or none
-EOF
-```
+Because remote branches are kept, a later run for the same PRD resumes the workstream from `origin`. To start an abandoned workstream over, delete its remote branch too.
 
-Use `.ralph/helpers/close-issue.sh --dry-run 123` to preview the close comment without mutating GitHub.
+### Providers and approval
 
-## Telegram Notifications
+OpenCode is the default. Claude uses `--print`, OpenCode uses `run`, and Codex uses `exec`; all run headlessly inside the worktree, with stdin from `/dev/null`, in their own process group so the iteration timeout (or interrupting the runner) stops the whole provider process tree. Interactive mode instead runs `opencode --prompt <prompt>`, `claude <prompt>` and `codex <prompt>` in the foreground; the OpenCode TUI has no model flag, so it ignores the model and effort (choose the model in the session). Auto-approval and the extra-argument settings below apply in both modes. `CLAUDE.md` and `.opencode/agents/ralph.md` point to canonical instructions; Codex uses `AGENTS.md` directly.
 
-Telegram notifications are optional. Copy the example environment file in the target repository and keep the real file uncommitted:
+Config currently pins `RALPH_MODEL=openai/gpt-5.5` and `RALPH_EFFORT=high`. Empty model omits the model flag. Choose a model supported by the selected CLI.
+
+**Reasoning level.** `RALPH_EFFORT` (or `--effort`) is one provider-neutral setting. OpenCode receives it as the model variant, `--model provider/model#effort` (only when a model is set). Claude receives `--effort <level>`. Codex receives `-c model_reasoning_effort=<level>`. Empty effort omits all three. Use a level the selected CLI accepts (Claude: `low`, `medium`, `high`, `xhigh`, `max`).
+
+Auto-approval is enabled by default: OpenCode receives `--auto`, Claude `--dangerously-skip-permissions`, Codex `--dangerously-bypass-approvals-and-sandbox`. `--no-auto-approve` omits these flags. For OpenCode and Codex the instruction not to publish is a prompt contract, not an enforced permission boundary.
+
+### Claude safety, limits and output
+
+- **Ralph settings file**: every Claude session, interactive included, gets `--settings .ralph/claude-settings.json` (absolute path in the main checkout). It denies `git push` and the `gh issue`/`gh pr` subcommands that change issues or PRs, plus `gh api`. Each rule also has a form with global options before the subcommand, such as `git -C dir push` or `gh -R owner/repo issue comment`. Claude merges these deny rules with the project's settings. The runner never writes `.claude/settings.json`. Claude refuses to start without the file (exit `4`).
+- **Turn limit**: headless sessions get `--max-turns $RALPH_CLAUDE_MAX_TURNS` (default `200`, `0` omits it).
+- **Structured output**: headless sessions run with `--output-format stream-json --verbose`. The iteration log then holds one JSON event per line, followed by runner and verify text. The final `result` event carries turns and cost:
+
+  ```bash
+  jq -R 'fromjson? | select(.type == "result") | {num_turns, total_cost_usd}' .ralph/logs/<run>/iteration-1-issue-123.log
+  ```
+
+**Manual check (Claude Code 2.1.318, 2026-11-05).** Real `claude --print --dangerously-skip-permissions --settings .ralph/claude-settings.json` ran in a scratch repo with a local bare origin and a recording `gh` stub. It denied each of these: `git push origin main`, `git status && git push`, `git -C . push origin main`, `git -c color.ui=never push origin main`, `env gh issue close 1`, `gh issue comment`, `gh -R a/b issue comment`, `gh pr create`, `gh pr merge` and `gh -R a/b api ... -X PATCH`. Nothing reached the remote or the stub. `git status`, `git log`, `gh issue list` and `gh issue view` still ran. The project's `.claude/settings.json` was unchanged. The first attempt let `git -C . push` and `gh -R a/b issue comment` through, which is why the global-option rules exist. Deny rules hold under bypass mode, so the adapter keeps `--dangerously-skip-permissions` and needs no allow-list fallback. These rules match command text, not behavior: a script or another interpreter could still push. Re-run this check after upgrading Claude Code.
+
+Override binaries/extra whitespace-separated arguments with `RALPH_OPENCODE_BIN`, `RALPH_OPENCODE_ARGS`, `RALPH_CLAUDE_BIN`, `RALPH_CLAUDE_ARGS`, `RALPH_CODEX_BIN`, and `RALPH_CODEX_ARGS`. Adapter flags were checked against Claude Code 2.1.318, OpenCode 2.0.30 and Codex 0.166.0 help. Claude's `--max-turns` is not listed in its help but is accepted. OpenCode receives neither the removed `--dir` nor a separate `--variant` flag. Verify your local CLI/model/approval behavior manually before unattended use; offline tests cannot guarantee provider behavior or target-specific checks.
+
+## v2 decisions
+
+In v2 the runner owns every control step and the agent only implements ([ADR 0001](docs/adr/0001-runner-owns-control-agent-only-implements.md)). Each PRD gets one worktree and one PR ([ADR 0002](docs/adr/0002-one-worktree-and-one-pr-per-prd-workstream.md)). The other decisions:
+
+- **Run modes**: unattended by default, plus `--dry-run` (preview, changes nothing) and `--interactive` (a human drives the session, and the runner still verifies and publishes). There is no local mode. See [Modes](#modes).
+- **Reasoning setting**: `RALPH_EFFORT`/`--effort` replaces v1's `RALPH_VARIANT`/`--variant`, with no alias, and `--variant` is now an unknown argument. Rename the setting in `.ralph/config` and `.ralph/.env`. See [Providers and approval](#providers-and-approval).
+- **Claude safety settings file**: every Claude session gets `--settings .ralph/claude-settings.json`. Its deny rules block pushing and tracker changes, even with auto-approval, and the project's `.claude/settings.json` is never modified. See [Claude safety, limits and output](#claude-safety-limits-and-output).
+- **Seed versus managed files**: `--force` updates Ralph's managed files but never overwrites the seed files your project owns. See [Install and update](#install-and-update).
+- **Close on push**: issues close when their verified commits are pushed, before the PR merges. Blockers clear sooner, but a closed issue is not yet on the default branch. See [Workstream pull requests](#workstream-pull-requests).
+- **v1 files no longer used**: `.ralph/progress.md` (the progress log), `.ralph/helpers/close-issue.sh` (the close helper) and the target-root `README.md` usage notes (now `.ralph/README.md`). The prompt no longer uses promise markers or a prompt-level dry run. The installer does not delete the old files. Remove them after review, but keep a root `README.md` that is your project's own. Compare the new seed templates with your copies by hand.
+
+## Optional Telegram notifications
 
 ```bash
 cp .ralph/.env.example .ralph/.env
 ```
 
-Set:
+Set `RALPH_NOTIFY=telegram`, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Send your bot `/start`, then run `.ralph/helpers/telegram-chat-id.sh` to discover the chat ID. A configured webhook can prevent `getUpdates`; the helper reports this and only deletes the webhook with explicit `--delete-webhook`.
+
+Test delivery with:
 
 ```bash
-RALPH_NOTIFY=telegram
-TELEGRAM_BOT_TOKEN=<bot token>
-TELEGRAM_CHAT_ID=<chat id>
+RALPH_REPO_ROOT="$PWD" .ralph/helpers/notify.sh ITERATION_COMPLETE "Notification test"
 ```
 
-To discover a chat ID, create or open a Telegram bot chat, send the bot a message such as `/start`, then run:
+Notifications are disabled unless configured. Each iteration sends a per-issue event, `ITERATION_COMPLETE` or `ITERATION_FAILED`, with `Issue:`, `Outcome:` (`success` or the failure outcome) and `PR:` lines. The end of the run sends its terminal result (`COMPLETE`, `BLOCKED`, `MAX_ITERATIONS`, `FINISHED_WITH_FAILURES`, `ERROR` or `INTERRUPTED`) with the run summary. `RALPH_NOTIFY_ON_ITERATION=0` suppresses the per-issue events. Missing settings/curl, API errors and unsupported backends warn without failing a run or changing its exit code.
 
-```bash
-.ralph/helpers/telegram-chat-id.sh
-```
-
-If the bot has a webhook configured, `getUpdates` may not return chat IDs. The helper reports that case and can delete the webhook when you explicitly request it:
-
-```bash
-.ralph/helpers/telegram-chat-id.sh --delete-webhook
-```
-
-Notification sending is best effort. Missing `curl`, missing Telegram settings, API failures, or unsupported notification backends warn but do not fail the Ralph run.
-
-To test notification delivery without running a provider, call the helper directly from the target repository:
-
-```bash
-RALPH_REPO_ROOT="$PWD" RALPH_PROGRESS_FILE=.ralph/progress.md .ralph/helpers/notify.sh ITERATION_COMPLETE "Notification test"
-```
-
-By default Ralph sends a notification after each successful iteration and for terminal states such as `COMPLETE`, `BLOCKED`, `ERROR`, and `MAX_ITERATIONS`. Set `RALPH_NOTIFY_ON_ITERATION=0` to suppress per-iteration success notifications.
-
-## Verification And CI
-
-This source repository verifies the reusable template with:
+## Verify this source repository
 
 ```bash
 bash scripts/verify.sh
+git diff --check
 ```
 
-The verification script syntax-checks shell files, installs the template into a temporary Git repository, confirms expected files are present, confirms ignored local paths are ignored, and checks that repeated installs are idempotent.
+Requires Bash, Git, Python 3.9+, jq and shellcheck. The verifier syntax-checks and shellchecks shell files, then installs into isolated temporary repositories with bare origins and offline stateful fake GitHub/provider CLIs. Scenarios observe installed files, ignores, seed versus managed files, `.gitignore` block upgrades, idempotency, provider arguments, issue selection, effort mapping, Claude settings and structured output, worktree isolation, failure outcomes and relabelling, the iteration timeout, push-before-close ordering, workstream PRs, per-run log folders, the run summary and notification payloads, remote-only branch resume, the single-runner lock and worktree cleanup. See [`tests/README.md`](tests/README.md).
 
-The GitHub Actions workflow `.github/workflows/verify.yml` runs `bash scripts/verify.sh` on pushes and pull requests.
-
-## Current Status
-
-This repository provides the reusable Ralph Loop tool:
-
-- Installer for target Git repositories.
-- Installed runner with OpenCode, Claude, and Codex provider adapters.
-- GitHub Issues solving prompt contract and safe close helper.
-- Shared branch, progress logging, and tracker reconciliation rules.
-- Optional Telegram notifications.
-- Lightweight source verification and CI.
-
-## Intended Use
-
-When complete, maintainers will install Ralph Loop into another Git repository, configure GitHub Issues labels and verification commands, and run one Ralph iteration at a time against eligible `ready-for-agent` issues.
-
-This repository is the reusable source project, not an installed target project.
-
-## Branch Policy
-
-Ralph keeps autonomous implementation work off the default branch. PRD-backed issue sets use one shared workstream branch named `ralph/<prd-slug>`, where the slug is derived from the PRD title. Standalone ready issues without a parent PRD use `ralph/issues`.
-
-At the start of an iteration, Ralph checks the current branch. If it is running from `main` or `master`, it creates or switches to the appropriate Ralph workstream branch before coding. If it is already on a non-main branch, it continues there unless the target repository instructions require a different branch.
+`.github/workflows/verify.yml` installs shellcheck/jq and runs verification on pushes and pull requests.

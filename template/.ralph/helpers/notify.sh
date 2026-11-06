@@ -36,34 +36,6 @@ truncate_text() {
   printf '%s\n...[truncated]' "${text:0:limit}"
 }
 
-latest_progress_block() {
-  local progress_file="${RALPH_PROGRESS_FILE:-}"
-  local line=""
-  local current=""
-  local in_block=0
-
-  if [[ -z "$progress_file" || ! -f "$progress_file" ]]; then
-    printf 'No progress file found.'
-    return
-  fi
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == '## '* ]]; then
-      current="$line"$'\n'
-      in_block=1
-    elif [[ "$in_block" -eq 1 ]]; then
-      current+="$line"$'\n'
-    fi
-  done <"$progress_file"
-
-  if [[ -z "$current" ]]; then
-    printf 'No progress entry yet.'
-    return
-  fi
-
-  truncate_text "$current" 1200
-}
-
 repo_root="${RALPH_REPO_ROOT:-$(pwd)}"
 repo_name="$(basename "$repo_root")"
 branch="unknown"
@@ -87,15 +59,24 @@ fi
 iteration="${RALPH_ITERATION:-unknown}"
 max_iterations="${RALPH_MAX_ITERATIONS:-unknown}"
 model="${RALPH_MODEL_NAME:-${RALPH_MODEL:-provider default}}"
-variant="${RALPH_VARIANT_NAME:-${RALPH_VARIANT:-provider default}}"
+effort="${RALPH_EFFORT_NAME:-${RALPH_EFFORT:-provider default}}"
 provider="${RALPH_PROVIDER_NAME:-${RALPH_PROVIDER:-unknown}}"
 exit_code="${RALPH_EXIT_CODE:-unknown}"
 provider_status="${RALPH_PROVIDER_STATUS:-unknown}"
 timestamp="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-progress="$(latest_progress_block)"
 
-message="Ralph status: $status
-Summary: ${summary:-none}
+message="Ralph status: $status"
+# Per-issue events name the issue, its outcome and the workstream PR.
+[[ -z "${RALPH_NOTIFY_ISSUE:-}" ]] || message+=$'\n'"Issue: $RALPH_NOTIFY_ISSUE"
+[[ -z "${RALPH_NOTIFY_OUTCOME:-}" ]] || message+=$'\n'"Outcome: $RALPH_NOTIFY_OUTCOME"
+[[ -z "${RALPH_NOTIFY_PR:-}" ]] || message+=$'\n'"PR: $RALPH_NOTIFY_PR"
+# A multi-line summary, such as the end-of-run summary, starts on its own line.
+if [[ "$summary" == *$'\n'* ]]; then
+  message+=$'\n'"Summary:"$'\n'"$summary"
+else
+  message+=$'\n'"Summary: ${summary:-none}"
+fi
+message+="
 Repo: $repo_name
 Path: $repo_root
 Branch: $branch
@@ -104,13 +85,10 @@ Worktree: $worktree
 Iteration: $iteration/$max_iterations
 Provider: $provider
 Model: $model
-Variant: $variant
+Effort: $effort
 Exit code: $exit_code
 Provider status: $provider_status
-Time: $timestamp
-
-Latest progress:
-$progress"
+Time: $timestamp"
 
 message="$(truncate_text "$message" 3900)"
 
