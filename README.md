@@ -11,6 +11,46 @@ Ralph Loop is a reusable template for installing an autonomous issue-solving run
 
 The [v2 decisions](#v2-decisions) section summarizes what changed from v1. [`docs/adr/`](docs/adr/) records the two main design decisions.
 
+## Quick start
+
+Requires Bash, Git, jq, an authenticated `gh`, and the CLI for your chosen provider (`claude`, `opencode` or `codex`).
+
+1. **Install** into your project from a clone of this repository:
+
+   ```bash
+   git clone https://github.com/sanijo/ralph-loop.git
+   cd ralph-loop
+   bash scripts/install.sh --dry-run /path/to/target-repo   # preview
+   bash scripts/install.sh /path/to/target-repo
+   ```
+
+2. **Configure** the target, then commit and push:
+   - `.ralph/config`: set `RALPH_PROVIDER`, optionally `RALPH_MODEL` and `RALPH_EFFORT`, and the required `RALPH_VERIFY_COMMAND`, for example `RALPH_VERIFY_COMMAND='npm test && npm run lint'`.
+   - `AGENTS.md`: replace the verification TODOs with your project's real checks.
+
+   ```bash
+   cd /path/to/target-repo
+   git add -A && git commit -m "chore: install Ralph Loop" && git push
+   ```
+
+3. **Plan** in your coding agent: `/grill-me` → `/to-spec` → `/to-tickets`. Run `/setup-matt-pocock-skills` once per repository first, so the skills know the tracker and labels. You should end up with a PRD issue whose sub-issues are labelled `ready-for-agent`.
+
+4. **Preview, then run.** Long runs are best inside `tmux`, so they survive a closed terminal:
+
+   ```bash
+   .ralph/ralph.sh --dry-run              # shows the next issue and the exact provider command
+   .ralph/ralph.sh --max-iterations 5     # one issue per iteration
+   ```
+
+   Each run prints a summary and writes logs to `.ralph/logs/<timestamp>/`. A failed issue gets a comment and is skipped. After `RALPH_MAX_FAILURES` failures it is relabelled `needs-info` for you to clarify.
+
+5. **Review and finish.** When the PRD's PR is marked ready for review, review it and merge it, which closes the PRD. Then:
+
+   ```bash
+   git pull
+   .ralph/ralph.sh --cleanup              # removes the merged worktree and branch
+   ```
+
 ## Install and update
 
 ```bash
@@ -24,6 +64,14 @@ The target must already be a Git worktree. The installer copies two kinds of fil
 - **Seed files** belong to the target once installed: `AGENTS.md`, `CLAUDE.md`, `.ralph/config` and `docs/agents/`. They are created only when missing and never overwritten, even with `--force`. `CLAUDE.md` is a bridge that imports `AGENTS.md` (`@AGENTS.md`).
 
 The installer never creates or overwrites a target-root `README.md`. It writes a Ralph-managed `.gitignore` block covering `.ralph/.env`, `.ralph/logs/`, `.ralph/tmp/`, `.ralph/cache/` and `.ralph/worktrees/`; an existing block, such as v1's, is rewritten in place between its markers and lines outside them are kept. A block missing its end marker is reported and left alone. Repeated installs are idempotent, and installer dry-run prints planned changes and writes nothing. The installer never deletes files; see [v2 decisions](#v2-decisions) when upgrading from v1.
+
+### Upgrade a v1 install
+
+1. Run `bash scripts/install.sh --force /path/to/target-repo`. This updates Ralph's managed files and keeps your seed files.
+2. In `.ralph/config` and `.ralph/.env`, rename `RALPH_VARIANT` to `RALPH_EFFORT` and add the required `RALPH_VERIFY_COMMAND`.
+3. Delete the v1 leftovers: `.ralph/progress.md`, `.ralph/helpers/close-issue.sh` and, if it only held Ralph's usage notes, the target-root `README.md`. Those notes now live in `.ralph/README.md`.
+4. Compare `template/AGENTS.md`, `template/CLAUDE.md` and `template/.ralph/config` with your copies, and merge anything useful by hand.
+5. Commit, push, and check the setup with `.ralph/ralph.sh --dry-run`.
 
 ## Configure a target
 
