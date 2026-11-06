@@ -29,11 +29,18 @@ tracker_issue_state() {
 
 # Prints jq output for a native issue relation. A missing relation (404) prints nothing.
 tracker_relation() {
-  local endpoint="$1" query="$2" error_file status=0
+  local endpoint="$1" query="$2" error_file output status=0
   error_file="$(mktemp)"
-  gh api "repos/$TRACKER_REPO/issues/$endpoint" --paginate --jq "$query" 2>"$error_file" || status=$?
+  # On HTTP errors gh writes the unfiltered error body to stdout, so the output
+  # is only used when the call succeeded.
+  output="$(gh api "repos/$TRACKER_REPO/issues/$endpoint" --paginate --jq "$query" 2>"$error_file")" || status=$?
+  if [[ "$status" -eq 0 ]]; then
+    rm -f "$error_file"
+    [[ -z "$output" ]] || printf '%s\n' "$output"
+    return 0
+  fi
   # A missing native relation is expected. Authentication/network errors are not.
-  if [[ "$status" -ne 0 ]] && ! grep -q '404' "$error_file"; then
+  if ! grep -q 'HTTP 404' "$error_file"; then
     cat "$error_file" >&2
     rm -f "$error_file"
     return 1

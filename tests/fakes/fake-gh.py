@@ -96,7 +96,7 @@ def dispatch():
         relation = match[2]
         if relation == "parent":
             if not item.get("parent"):
-                raise ValueError("HTTP 404: no native parent")
+                raise HttpError(404, "No parent issue found")
             return api_issue(issue(item["parent"]))
         if relation == "dependencies/blocked_by":
             return [api_issue(issue(number)) for number in item.get("blockers", [])]
@@ -131,6 +131,15 @@ def dispatch():
     raise ValueError(f"Unsupported fake gh operation: {args}")
 
 
+class HttpError(Exception):
+    """Mimics real gh: the error body goes to stdout, unfiltered by --jq."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
 record("gh")
 args = sys.argv[1:]
 state_path = os.environ["RALPH_TEST_STATE"]
@@ -147,6 +156,10 @@ try:
         subprocess.run(["jq", "-r", query], input=json.dumps(result), text=True, check=True)
     elif result is not None:
         print(result if isinstance(result, str) else json.dumps(result))
+except HttpError as error:
+    print(json.dumps({"message": error.message, "status": str(error.status)}), end="")
+    print(f"gh: {error.message} (HTTP {error.status})", file=sys.stderr)
+    sys.exit(1)
 except (ValueError, KeyError, StopIteration, IndexError) as error:
     print(f"fake gh: {error}", file=sys.stderr)
     sys.exit(1)
